@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Users, Plus, Search, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -33,10 +33,16 @@ export default function Owners() {
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
+  // Search runs on the server across all owners; wait for a pause in typing before querying
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['sa-owners', page],
-    queryFn: () => getOwners(page, PAGE_SIZE),
+    queryKey: ['sa-owners', page, debouncedSearch, statusFilter],
+    queryFn: () => getOwners(page, PAGE_SIZE, debouncedSearch, statusFilter),
     placeholderData: keepPreviousData,
   })
 
@@ -48,18 +54,16 @@ export default function Owners() {
     )
 
   const owners: OwnerRow[] = data?.content ?? (Array.isArray(data) ? data : [])
-  const totalOwners: number = data?.totalElements ?? owners.length
-  const totalPages: number = data?.totalPages ?? 1
+  const totalOwners: number = data?.totalOwners ?? data?.totalElements ?? owners.length
+  const totalPages: number = Math.max(1, data?.totalPages ?? 1)
+  const matchCount: number = data?.totalElements ?? owners.length
 
-  const totalActive = owners.filter((o) => o.status === 'ACTIVE').length
-  const totalSuspended = owners.filter((o) => o.status === 'SUSPENDED').length
+  // Platform-wide counts from the server (not just this page)
+  const totalActive: number = data?.activeCount ?? owners.filter((o) => o.status === 'ACTIVE').length
+  const totalSuspended: number = data?.suspendedCount ?? owners.filter((o) => o.status === 'SUSPENDED').length
 
-  const q = search.trim().toLowerCase()
-  const filtered = owners.filter((o) => {
-    if (statusFilter !== 'ALL' && o.status !== statusFilter) return false
-    if (!q) return true
-    return [o.ownerName, o.businessName, o.email, o.mobile].some((v) => v?.toLowerCase().includes(q))
-  })
+  const filtered = owners // already filtered by the server
+  const filtering = !!debouncedSearch || statusFilter !== 'ALL'
 
   return (
     <div className="space-y-6">
@@ -107,14 +111,14 @@ export default function Owners() {
         <StatCard
           label="Active"
           value={totalActive}
-          sub={totalPages > 1 ? 'On this page' : 'Accounts in good standing'}
+          sub="Accounts in good standing"
           icon={<Users size={20} className="text-emerald-600" />}
           iconBg="bg-emerald-50"
         />
         <StatCard
           label="Suspended"
           value={totalSuspended}
-          sub={totalPages > 1 ? 'On this page' : 'Accounts on hold'}
+          sub="Accounts on hold"
           icon={<Users size={20} className="text-red-500" />}
           iconBg="bg-red-50"
         />
@@ -128,14 +132,14 @@ export default function Owners() {
           </div>
           <h2 className="font-semibold text-gray-800 text-sm">All Owners</h2>
           <span className="text-xs font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-            {filtered.length}
+            {matchCount}
           </span>
           <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-2">
             <div className="relative flex-1 sm:flex-none">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setPage(0) }}
                 placeholder="Search name, email, mobile"
                 aria-label="Search owners"
                 className="w-full sm:w-60 pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-gray-50 focus:bg-white"
@@ -143,7 +147,7 @@ export default function Owners() {
             </div>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              onChange={(e) => { setStatusFilter(e.target.value as StatusFilter); setPage(0) }}
               aria-label="Filter by status"
               className="px-2.5 py-1.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500"
             >
@@ -213,7 +217,7 @@ export default function Owners() {
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-5 py-12 text-center text-sm text-gray-400">
-                    {owners.length === 0 ? 'No owners found' : 'No owners match your search'}
+                    {filtering ? 'No owners match your search' : 'No owners found'}
                   </td>
                 </tr>
               )}

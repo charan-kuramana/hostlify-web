@@ -5,8 +5,12 @@ export const getSADashboard = () =>
   apiClient.get('/admin/dashboard').then((r) => r.data.data)
 
 // ─── Owners ───────────────────────────────────────────────────────────────────
-export const getOwners = (page = 0, size = 20) =>
-  apiClient.get(`/admin/owners?page=${page}&size=${size}`).then((r) => r.data.data)
+export const getOwners = (page = 0, size = 20, search = '', status = 'ALL') => {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (search.trim()) params.append('search', search.trim())
+  if (status && status !== 'ALL') params.append('status', status)
+  return apiClient.get(`/admin/owners?${params}`).then((r) => r.data.data)
+}
 
 export const getOwnerById = (id: number) =>
   apiClient.get(`/admin/owners/${id}`).then((r) => r.data.data)
