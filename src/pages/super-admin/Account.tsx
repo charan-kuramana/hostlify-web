@@ -1,27 +1,62 @@
 import { useState } from 'react'
-import { Shield, AlertTriangle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Shield, LogOut } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
+import { useToastStore } from '../../store/toastStore'
+import { getSAAccount, changeSAPassword, apiErrorMessage } from '../../api/superadmin'
+
+function formatDate(value?: string | null, withTime = false) {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString('en-IN', withTime
+    ? { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }
+    : { month: 'long', year: 'numeric' })
+}
+
+const inputCls =
+  'w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-gray-50 focus:bg-white transition-colors'
 
 export default function SAAccount() {
-  const { email } = useAuthStore()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { email: storeEmail, logout } = useAuthStore()
+  const toast = useToastStore((s) => s.show)
 
-  const [form, setForm] = useState({
-    firstName: 'Admin',
-    lastName: 'User',
-    mobile: '',
-  })
+  // Account details (email, mobile, last login...). Falls back to the login email if unavailable.
+  const { data: account } = useQuery({ queryKey: ['sa-account'], queryFn: getSAAccount, retry: false })
+
   const [passwords, setPasswords] = useState({ current: '', newPass: '', confirm: '' })
+  const [pwError, setPwError] = useState('')
 
-  function handleProfileSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    // TODO: call updateProfile API
-  }
+  const pwMutation = useMutation({
+    mutationFn: () => changeSAPassword(passwords.current, passwords.newPass),
+    onSuccess: () => {
+      setPasswords({ current: '', newPass: '', confirm: '' })
+      toast('success', 'Password updated', 'Use your new password next time you sign in.')
+    },
+    onError: (err) => setPwError(apiErrorMessage(err, 'Could not update password. Please try again.')),
+  })
 
   function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault()
-    // Feature coming soon
-    setPasswords({ current: '', newPass: '', confirm: '' })
+    if (!passwords.current) return setPwError('Enter your current password')
+    if (passwords.newPass.length < 8) return setPwError('New password must be at least 8 characters')
+    if (passwords.newPass !== passwords.confirm) return setPwError('New passwords do not match')
+    if (passwords.newPass === passwords.current) return setPwError('New password must be different from the current password')
+    setPwError('')
+    pwMutation.mutate()
   }
+
+  async function handleSignOut() {
+    await logout()
+    queryClient.clear()
+    navigate('/auth/super-admin/login', { replace: true })
+  }
+
+  const email: string = account?.email ?? storeEmail ?? ''
+  const initials = (email[0] ?? 'S').toUpperCase() + 'A'
 
   return (
     <div className="space-y-6">
@@ -37,131 +72,83 @@ export default function SAAccount() {
           />
         </div>
         <div className="px-6 pb-6">
-          <div className="flex items-end gap-4 -mt-9 mb-4">
+          <div className="relative z-10 flex items-end gap-4 -mt-9 mb-4">
             <div
               className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold text-white shadow-lg border-4 border-white shrink-0"
               style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}
             >
-              {form.firstName[0]}{form.lastName[0]}
+              {initials}
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-xl font-bold text-gray-900">{form.firstName} {form.lastName}</h2>
+            <h2 className="text-xl font-bold text-gray-900">Super Admin</h2>
             <span className="text-xs font-semibold bg-violet-50 text-violet-700 px-2.5 py-1 rounded-full">
               SUPER ADMIN
             </span>
           </div>
-          <p className="text-sm text-gray-500 mt-1">{email ?? 'admin@hostlify.in'}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Member since January 2025</p>
+          <p className="text-sm text-gray-500 mt-1">{email}</p>
+          {account?.createdAt && (
+            <p className="text-xs text-gray-400 mt-0.5">Member since {formatDate(account.createdAt)}</p>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Col: Edit Profile + Change Password */}
-        <div className="space-y-6">
-          {/* Edit Profile */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-50">
-              <h3 className="font-semibold text-gray-800 text-sm">Edit Profile</h3>
-            </div>
-            <form onSubmit={handleProfileSubmit} className="p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">First Name</label>
-                  <input
-                    value={form.firstName}
-                    onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-gray-50 focus:bg-white transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Last Name</label>
-                  <input
-                    value={form.lastName}
-                    onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-gray-50 focus:bg-white transition-colors"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Mobile</label>
+        {/* Change Password */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-50">
+            <h3 className="font-semibold text-gray-800 text-sm">Change Password</h3>
+          </div>
+          <form onSubmit={handlePasswordSubmit} className="p-5 space-y-4">
+            {[
+              { key: 'current', label: 'Current Password', auto: 'current-password' },
+              { key: 'newPass', label: 'New Password', auto: 'new-password' },
+              { key: 'confirm', label: 'Confirm New Password', auto: 'new-password' },
+            ].map((field) => (
+              <div key={field.key}>
+                <label htmlFor={`pw-${field.key}`} className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  {field.label}
+                </label>
                 <input
-                  value={form.mobile}
-                  onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value }))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-gray-50 focus:bg-white transition-colors"
+                  id={`pw-${field.key}`}
+                  type="password"
+                  autoComplete={field.auto}
+                  value={passwords[field.key as keyof typeof passwords]}
+                  onChange={(e) => { setPasswords((p) => ({ ...p, [field.key]: e.target.value })); setPwError('') }}
+                  className={inputCls}
                 />
               </div>
-              <div className="flex justify-end pt-1">
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                  style={{ background: 'linear-gradient(135deg, #0f2d4a 0%, #1d6ea8 100%)' }}
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* Change Password */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-50">
-              <h3 className="font-semibold text-gray-800 text-sm">Change Password</h3>
+            ))}
+            {pwError && <p className="text-sm text-red-500 font-medium">{pwError}</p>}
+            <div className="flex justify-end pt-1">
+              <button
+                type="submit"
+                disabled={pwMutation.isPending}
+                className="px-5 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                style={{ background: 'linear-gradient(135deg, #0f2d4a 0%, #1d6ea8 100%)' }}
+              >
+                {pwMutation.isPending ? 'Updating...' : 'Update Password'}
+              </button>
             </div>
-            <form onSubmit={handlePasswordSubmit} className="p-5 space-y-4">
-              <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-700 font-medium">
-                Feature coming soon
-              </div>
-              {[
-                { key: 'current', label: 'Current Password' },
-                { key: 'newPass', label: 'New Password' },
-                { key: 'confirm', label: 'Confirm New Password' },
-              ].map((field) => (
-                <div key={field.key}>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                    {field.label}
-                  </label>
-                  <input
-                    type="password"
-                    disabled
-                    value={passwords[field.key as keyof typeof passwords]}
-                    onChange={(e) => setPasswords((p) => ({ ...p, [field.key]: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-gray-50 focus:bg-white transition-colors opacity-50 cursor-not-allowed"
-                  />
-                </div>
-              ))}
-              <div className="flex justify-end pt-1">
-                <button
-                  type="submit"
-                  disabled
-                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90 opacity-50 cursor-not-allowed"
-                  style={{ background: 'linear-gradient(135deg, #0f2d4a 0%, #1d6ea8 100%)' }}
-                >
-                  Update Password
-                </button>
-              </div>
-            </form>
-          </div>
+          </form>
         </div>
 
-        {/* Right Col: Platform Info + Danger Zone */}
+        {/* Account Info */}
         <div className="space-y-6">
-          {/* Platform Info */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2.5 px-5 py-4 border-b border-gray-50">
               <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center">
                 <Shield size={14} className="text-violet-600" />
               </div>
-              <h3 className="font-semibold text-gray-800 text-sm">Platform Info</h3>
+              <h3 className="font-semibold text-gray-800 text-sm">Account Info</h3>
             </div>
             <div className="divide-y divide-gray-50">
               {[
-                ['Version', 'Hostlify v1.0.0'],
-                ['Environment', 'Production'],
-                ['Last Login', 'Mar 15, 2026 · 09:42 AM'],
-                ['Active Sessions', '1 device'],
+                ['Email', email || '—'],
+                ['Mobile', account?.mobile || '—'],
                 ['Role', 'SUPER_ADMIN'],
-                ['Member Since', 'January 2025'],
+                ['Status', account?.status ?? 'ACTIVE'],
+                ['Signed in', formatDate(account?.lastLoginAt, true)],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between px-5 py-3">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label}</p>
@@ -171,34 +158,17 @@ export default function SAAccount() {
             </div>
           </div>
 
-          {/* Danger Zone */}
-          <div className="bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden">
-            <div className="flex items-center gap-2.5 px-5 py-4 border-b border-red-50">
-              <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
-                <AlertTriangle size={14} className="text-red-500" />
-              </div>
-              <h3 className="font-semibold text-red-700 text-sm">Danger Zone</h3>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Sign out</p>
+              <p className="text-xs text-gray-500 mt-0.5">End this session on this device</p>
             </div>
-            <div className="p-5 space-y-3">
-              <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-red-50/50 border border-red-100">
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">Sign Out All Sessions</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Log out from all active devices</p>
-                </div>
-                <button className="px-3 py-1.5 text-xs font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 bg-white transition-colors whitespace-nowrap">
-                  Sign Out All
-                </button>
-              </div>
-              <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-red-50/50 border border-red-100">
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">Deactivate Account</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Permanently deactivate this account</p>
-                </div>
-                <button className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors whitespace-nowrap">
-                  Deactivate
-                </button>
-              </div>
-            </div>
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 bg-white transition-colors whitespace-nowrap"
+            >
+              <LogOut size={13} /> Sign Out
+            </button>
           </div>
         </div>
       </div>

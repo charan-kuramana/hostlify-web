@@ -19,10 +19,16 @@ export default function SuperAdminDashboard() {
   const hostels: Array<{ id: number; name: string; city: string; total: number; occupied: number; revenue: number }> =
     dashboard?.hostels ?? []
 
-  const totalOccupied = hostels.reduce((s: number, h: { occupied: number }) => s + h.occupied, 0)
-  const totalCapacity = hostels.reduce((s: number, h: { total: number }) => s + h.total, 0)
-  const totalRevenue = hostels.reduce((s: number, h: { revenue: number }) => s + h.revenue, 0)
+  const totalOccupied = hostels.reduce((s: number, h: { occupied: number }) => s + Number(h.occupied ?? 0), 0)
+  const totalCapacity: number = hostels.length
+    ? hostels.reduce((s: number, h: { total: number }) => s + Number(h.total ?? 0), 0)
+    : Number(dashboard?.totalBeds ?? 0)
+  const totalRevenue = hostels.reduce((s: number, h: { revenue: number }) => s + Number(h.revenue ?? 0), 0)
   const cities = new Set(hostels.map((h: { city: string }) => h.city)).size
+  const residents: number = Number(dashboard?.totalResidents ?? dashboard?.activeBookings ?? totalOccupied)
+  const hostelCount: number = dashboard?.totalHostels ?? hostels.length
+  const monthlyRevenue: number = Number(dashboard?.monthlyRevenue ?? totalRevenue)
+  const fullPct = totalCapacity > 0 ? Math.round((residents / totalCapacity) * 100) : 0
 
   return (
     <div className="space-y-6">
@@ -38,7 +44,9 @@ export default function SuperAdminDashboard() {
         <p className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.6)' }}>Super Admin 👋</p>
         <h1 className="text-2xl font-bold mt-0.5 tracking-tight">Network Overview</h1>
         <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.5)' }}>
-          {hostels.length} hostels across {cities} cities
+          {hostelCount} hostel{hostelCount === 1 ? '' : 's'}
+          {cities > 0 ? ` across ${cities} cit${cities === 1 ? 'y' : 'ies'}` : ''}
+          {dashboard?.totalOwners != null ? ` · ${dashboard.totalOwners} owners` : ''}
         </p>
       </div>
 
@@ -46,30 +54,29 @@ export default function SuperAdminDashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Total Hostels"
-          value={dashboard?.totalHostels ?? hostels.length}
-          sub={`Across ${cities} cities`}
+          value={hostelCount}
+          sub={cities > 0 ? `Across ${cities} cit${cities === 1 ? 'y' : 'ies'}` : 'On the platform'}
           icon={<Building2 size={20} className="text-purple-600" />}
           iconBg="bg-purple-50"
         />
         <StatCard
           label="Total Residents"
-          value={dashboard?.totalResidents ?? totalOccupied}
-          sub={`${totalCapacity - (dashboard?.totalResidents ?? totalOccupied)} beds available`}
+          value={residents}
+          sub={`${Math.max(totalCapacity - residents, 0)} of ${totalCapacity} beds available`}
           icon={<Users size={20} className="text-brand-600" />}
           iconBg="bg-brand-50"
-          trend={{ value: `${totalCapacity > 0 ? Math.round(((dashboard?.totalResidents ?? totalOccupied) / totalCapacity) * 100) : 0}% full`, up: true }}
+          trend={{ value: `${fullPct}% full`, up: fullPct >= 50 }}
         />
         <StatCard
           label="Monthly Revenue"
-          value={`₹${((dashboard?.monthlyRevenue ?? totalRevenue) / 100000).toFixed(1)}L`}
-          sub="Current month · All hostels"
+          value={`₹${monthlyRevenue.toLocaleString('en-IN')}`}
+          sub="Collected this month · All hostels"
           icon={<TrendingUp size={20} className="text-emerald-600" />}
           iconBg="bg-emerald-50"
-          trend={{ value: '+3.8%', up: true }}
         />
         <StatCard
           label="Open Complaints"
-          value={dashboard?.openComplaints ?? 0}
+          value={dashboard?.openComplaints ?? '—'}
           sub="Across all hostels"
           icon={<AlertCircle size={20} className="text-amber-600" />}
           iconBg="bg-amber-50"
@@ -145,14 +152,14 @@ export default function SuperAdminDashboard() {
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right font-bold text-gray-900">
-                      ₹{h.revenue.toLocaleString()}
+                      ₹{Number(h.revenue ?? 0).toLocaleString('en-IN')}
                     </td>
                   </tr>
                 )
               })}
               {hostels.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-10 text-center text-sm text-gray-400">No hostel data available</td>
+                  <td colSpan={5} className="px-5 py-10 text-center text-sm text-gray-400">No per-hostel data available</td>
                 </tr>
               )}
             </tbody>
@@ -182,7 +189,7 @@ export default function SuperAdminDashboard() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-right font-bold text-gray-900 text-base">
-                    ₹{totalRevenue.toLocaleString()}
+                    ₹{totalRevenue.toLocaleString('en-IN')}
                   </td>
                 </tr>
               </tfoot>

@@ -1,18 +1,22 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { getAllComplaints } from '../../api/superadmin'
 import { MessageSquare, AlertCircle } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import PageHeader from '../../components/ui/PageHeader'
 import StatCard from '../../components/ui/StatCard'
 
-// TODO: No super-admin complaints endpoint exists in the API yet.
-// Replace MOCK_SA_COMPLAINTS with a real API call when the endpoint is available.
-const MOCK_SA_COMPLAINTS = [
-  { id: 1, hostel: 'Sunrise Hostel',        owner: 'Vikram Mehta',  member: 'Arjun Sharma', title: 'AC not working',     category: 'Maintenance', status: 'IN_PROGRESS', priority: 'HIGH',   date: 'Mar 9, 2026' },
-  { id: 2, hostel: 'Green Valley Hostel',   owner: 'Vikram Mehta',  member: 'Pooja Singh',  title: 'Food quality issue', category: 'Food',        status: 'OPEN',        priority: 'MEDIUM', date: 'Mar 7, 2026' },
-  { id: 3, hostel: 'Sunrise Hostel',        owner: 'Vikram Mehta',  member: 'Ravi Kumar',   title: 'Wifi connectivity',  category: 'Other',       status: 'RESOLVED',    priority: 'LOW',    date: 'Mar 3, 2026' },
-  { id: 4, hostel: 'Blue Ridge Hostel',     owner: 'Arun Krishnan', member: 'Meera Patel',  title: 'Water supply issue', category: 'Plumbing',    status: 'OPEN',        priority: 'HIGH',   date: 'Mar 1, 2026' },
-  { id: 5, hostel: 'Cozy Rooms Bangalore',  owner: 'Deepa Shetty',  member: 'Sanjay Gupta', title: 'Security concern',   category: 'Security',    status: 'OPEN',        priority: 'URGENT', date: 'Feb 28, 2026' },
-]
+interface SAComplaint {
+  id: number
+  hostel: string
+  owner: string
+  member: string
+  title: string
+  category: string
+  status: string
+  priority: string
+  date: string
+}
 
 const PRIORITY_CHIP: Record<string, string> = {
   URGENT: 'bg-red-100 text-red-700',
@@ -34,14 +38,22 @@ type StatusFilter = 'ALL' | 'OPEN' | 'IN_PROGRESS' | 'RESOLVED'
 export default function SAComplaints() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
 
-  const filtered = statusFilter === 'ALL'
-    ? MOCK_SA_COMPLAINTS
-    : MOCK_SA_COMPLAINTS.filter((c) => c.status === statusFilter)
+  const { data } = useQuery({ queryKey: ['sa-complaints'], queryFn: getAllComplaints })
+  const complaints: SAComplaint[] = (Array.isArray(data) ? data : []).map((c: SAComplaint & { createdAt?: string }) => ({
+    ...c,
+    date: c.createdAt
+      ? new Date(c.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+      : '—',
+  }))
 
-  const openCount = MOCK_SA_COMPLAINTS.filter((c) => c.status === 'OPEN').length
-  const inProgressCount = MOCK_SA_COMPLAINTS.filter((c) => c.status === 'IN_PROGRESS').length
-  const resolvedCount = MOCK_SA_COMPLAINTS.filter((c) => c.status === 'RESOLVED').length
-  const urgentCount = MOCK_SA_COMPLAINTS.filter((c) => c.priority === 'URGENT').length
+  const filtered = statusFilter === 'ALL'
+    ? complaints
+    : complaints.filter((c) => c.status === statusFilter)
+
+  const openCount = complaints.filter((c) => c.status === 'OPEN').length
+  const inProgressCount = complaints.filter((c) => c.status === 'IN_PROGRESS').length
+  const resolvedCount = complaints.filter((c) => c.status === 'RESOLVED').length
+  const urgentCount = complaints.filter((c) => c.priority === 'URGENT' || c.priority === 'HIGH').length
 
   return (
     <div className="space-y-6">
@@ -75,7 +87,7 @@ export default function SAComplaints() {
           iconBg="bg-emerald-50"
         />
         <StatCard
-          label="Urgent"
+          label="High / Urgent"
           value={urgentCount}
           sub="Require immediate attention"
           icon={<AlertCircle size={20} className="text-red-500" />}

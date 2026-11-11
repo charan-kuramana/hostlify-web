@@ -1,23 +1,19 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Download, TrendingUp } from 'lucide-react'
 import StatCard from '../../components/ui/StatCard'
-import { getRevenueReport } from '../../api/superadmin'
-
-const PLAN_CHIP: Record<string, string> = {
-  STARTER: 'bg-gray-100 text-gray-600',
-  PROFESSIONAL: 'bg-brand-50 text-brand-700',
-  ENTERPRISE: 'bg-violet-50 text-violet-700',
-}
+import { getRevenueReport, PLAN_CHIP } from '../../api/superadmin'
 
 export default function Revenue() {
   const now = new Date()
-  const [month] = useState(now.getMonth() + 1)
-  const [year] = useState(now.getFullYear())
+  const [month, setMonth] = useState(now.getMonth() + 1)
+  const [year, setYear] = useState(now.getFullYear())
+  const maxMonthValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 
   const { data, isLoading } = useQuery({
     queryKey: ['sa-revenue', month, year],
     queryFn: () => getRevenueReport(month, year),
+    placeholderData: keepPreviousData,
   })
 
   if (isLoading)
@@ -28,6 +24,7 @@ export default function Revenue() {
     )
 
   const ownerRevenue: Array<{
+    id: number | string
     owner: string
     plan: string
     hostels: number
@@ -36,6 +33,7 @@ export default function Revenue() {
     outstanding: number
     rate: number
   }> = (data?.ownerBreakdown ?? data?.owners ?? []).map((r: {
+    ownerId?: number
     ownerName?: string
     owner?: string
     plan?: string
@@ -49,14 +47,15 @@ export default function Revenue() {
     outstanding?: number
     collectionRate?: number
     rate?: number
-  }) => ({
+  }, idx: number) => ({
+    id: r.ownerId ?? idx,
     owner: r.ownerName ?? r.owner ?? '',
     plan: r.plan ?? '',
     hostels: r.hostelCount ?? r.hostels ?? 0,
     members: r.memberCount ?? r.members ?? 0,
-    collected: r.collectedAmount ?? r.collected ?? 0,
-    outstanding: r.outstandingAmount ?? r.outstanding ?? 0,
-    rate: r.collectionRate ?? r.rate ?? 0,
+    collected: Number(r.collectedAmount ?? r.collected ?? 0),
+    outstanding: Number(r.outstandingAmount ?? r.outstanding ?? 0),
+    rate: Number(r.collectionRate ?? r.rate ?? 0),
   }))
 
   const monthly: Array<{ month: string; amount: number; current?: boolean }> =
@@ -68,19 +67,37 @@ export default function Revenue() {
       current?: boolean
     }, idx: number, arr: unknown[]) => ({
       month: m.month ?? m.label ?? '',
-      amount: m.amount ?? m.revenue ?? 0,
+      amount: Number(m.amount ?? m.revenue ?? 0),
       current: m.current ?? idx === arr.length - 1,
     }))
 
   const maxAmount = monthly.length > 0 ? Math.max(...monthly.map((m) => m.amount)) : 1
-  const currentMonth = monthly.find((m) => m.current) ?? monthly[monthly.length - 1]
   const totalCollected = ownerRevenue.reduce((s, r) => s + r.collected, 0)
-  const avgRate = ownerRevenue.length > 0
-    ? Math.round(ownerRevenue.reduce((s, r) => s + r.rate, 0) / ownerRevenue.length)
+  const totalOutstanding = ownerRevenue.reduce((s, r) => s + r.outstanding, 0)
+  // Platform collection rate = collected / (collected + outstanding) for the month
+  const avgRate = totalCollected + totalOutstanding > 0
+    ? Math.round((totalCollected / (totalCollected + totalOutstanding)) * 100)
     : 0
-  const activeOwners = ownerRevenue.length
+  const activeOwners = ownerRevenue.filter((r) => r.collected > 0).length
+  const platformRevenue = Number(data?.totalCollected ?? totalCollected)
 
-  const monthLabel = now.toLocaleString('default', { month: 'long' }) + ' ' + year
+  const monthLabel = new Date(year, month - 1, 1).toLocaleString('en-IN', { month: 'long' }) + ' ' + year
+  const inr = (n: number) => `₹${Number(n).toLocaleString('en-IN')}`
+
+  function exportCsv() {
+    const header = ['Owner', 'Plan', 'Hostels', 'Members', 'Collected', 'Outstanding', 'Collection Rate %']
+    const lines = ownerRevenue.map((r) => [r.owner, r.plan, r.hostels, r.members, r.collected, r.outstanding, r.rate])
+    lines.push(['Platform Total', '', '', '', totalCollected, totalOutstanding, avgRate])
+    const csv = [header, ...lines]
+      .map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `hostlify-revenue-${year}-${String(month).padStart(2, '0')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="space-y-6">
@@ -101,9 +118,26 @@ export default function Revenue() {
               Platform-wide revenue overview · {monthLabel}
             </p>
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-white/15 hover:bg-white/20 text-white transition-colors border border-white/20 shrink-0">
-            <Download size={15} /> Export
-          </button>
+          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 shrink-0">
+            <input
+              type="month"
+              aria-label="Report month"
+              value={`${year}-${String(month).padStart(2, '0')}`}
+              max={maxMonthValue}
+              onChange={(e) => {
+                const [y, m] = e.target.value.split('-').map(Number)
+                if (y && m) { setYear(y); setMonth(m) }
+              }}
+              className="px-3 py-1.5 rounded-xl text-sm font-semibold bg-white/15 text-white border border-white/20 [color-scheme:dark]"
+            />
+            <button
+              onClick={exportCsv}
+              disabled={ownerRevenue.length === 0}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-white/15 hover:bg-white/20 text-white transition-colors border border-white/20 disabled:opacity-50"
+            >
+              <Download size={15} /> Export CSV
+            </button>
+          </div>
         </div>
       </div>
 
@@ -111,23 +145,22 @@ export default function Revenue() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           label="Platform Revenue"
-          value={`₹${((currentMonth?.amount ?? 0) / 100000).toFixed(2)}L`}
+          value={inr(platformRevenue)}
           sub={`${monthLabel} · all hostels`}
           icon={<TrendingUp size={20} className="text-violet-600" />}
           iconBg="bg-violet-50"
-          trend={{ value: '+7.1%', up: true }}
         />
         <StatCard
           label="Collection Rate"
           value={`${avgRate}%`}
-          sub="Average across all owners"
+          sub={`${inr(totalCollected)} of ${inr(totalCollected + totalOutstanding)} billed`}
           icon={<TrendingUp size={20} className="text-emerald-600" />}
           iconBg="bg-emerald-50"
         />
         <StatCard
-          label="Active Owners"
-          value={activeOwners}
-          sub="Contributing to revenue"
+          label="Paying Owners"
+          value={`${activeOwners} / ${ownerRevenue.length}`}
+          sub={`Collected revenue in ${monthLabel}`}
           icon={<TrendingUp size={20} className="text-brand-600" />}
           iconBg="bg-brand-50"
         />
@@ -155,7 +188,7 @@ export default function Revenue() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {ownerRevenue.map((r) => (
-                <tr key={r.owner} className="hover:bg-gray-50/70 transition-colors">
+                <tr key={r.id} className="hover:bg-gray-50/70 transition-colors">
                   <td className="px-5 py-3.5">
                     <p className="font-semibold text-gray-800">{r.owner}</p>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${PLAN_CHIP[r.plan] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -165,10 +198,10 @@ export default function Revenue() {
                   <td className="px-5 py-3.5 text-center font-medium text-gray-700">{r.hostels}</td>
                   <td className="px-5 py-3.5 text-center font-medium text-gray-700">{r.members}</td>
                   <td className="px-5 py-3.5 text-right font-bold text-emerald-700">
-                    ₹{(r.collected / 100000).toFixed(2)}L
+                    {inr(r.collected)}
                   </td>
                   <td className="px-5 py-3.5 text-right font-semibold text-red-500">
-                    ₹{(r.outstanding / 100000).toFixed(2)}L
+                    {inr(r.outstanding)}
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-2">
@@ -201,13 +234,13 @@ export default function Revenue() {
                 <tr className="border-t-2 border-gray-200 bg-gray-50">
                   <td colSpan={3} className="px-5 py-3.5 font-bold text-gray-700">Platform Total</td>
                   <td className="px-5 py-3.5 text-right font-bold text-emerald-700 text-base">
-                    ₹{(totalCollected / 100000).toFixed(2)}L
+                    {inr(totalCollected)}
                   </td>
                   <td className="px-5 py-3.5 text-right font-bold text-red-500">
-                    ₹{(ownerRevenue.reduce((s, r) => s + r.outstanding, 0) / 100000).toFixed(2)}L
+                    {inr(totalOutstanding)}
                   </td>
                   <td className="px-5 py-3.5">
-                    <span className="text-xs font-bold text-violet-700">{avgRate}% avg</span>
+                    <span className="text-xs font-bold text-violet-700">{avgRate}%</span>
                   </td>
                 </tr>
               </tfoot>
