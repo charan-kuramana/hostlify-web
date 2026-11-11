@@ -19,7 +19,7 @@ import {
   getBedsByRoom,
 } from '../../api/staff'
 
-const STATUS_TABS = ['ALL', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED'] as const
+const STATUS_TABS = ['ALL', 'PENDING_APPROVAL', 'REASSIGNED', 'APPROVED', 'REJECTED'] as const
 type StatusTab = typeof STATUS_TABS[number]
 
 const PREF_CHIP: Record<string, string> = {
@@ -50,12 +50,19 @@ function ApproveModal({ requestId, onClose, onSuccess }: { requestId: number; on
     mutationFn: () =>
       approveBookingRequest(requestId, {
         monthlyRent: Number(monthlyRent),
-        advanceAmount: Number(advanceAmount),
-        paymentMode,
+        advanceAmount: Number(advanceAmount || 0),
+        advancePaymentMode: paymentMode, // the API reads advancePaymentMode
       }),
     onSuccess,
     onError: (e: any) => setErr(e?.response?.data?.message ?? 'Failed to approve.'),
   })
+
+  function submit() {
+    if (!(Number(monthlyRent) > 0)) { setErr('Monthly rent must be greater than 0.'); return }
+    if (Number(advanceAmount || 0) < 0) { setErr('Advance amount cannot be negative.'); return }
+    setErr(null)
+    mutation.mutate()
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -96,7 +103,7 @@ function ApproveModal({ requestId, onClose, onSuccess }: { requestId: number; on
         {err && <p className="mt-3 text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{err}</p>}
         <div className="flex gap-3 mt-6">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50">Cancel</button>
-          <button onClick={() => mutation.mutate()} disabled={mutation.isPending || !monthlyRent}
+          <button onClick={submit} disabled={mutation.isPending || !monthlyRent}
             className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
             style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}>
             {mutation.isPending ? 'Approving...' : 'Confirm Approve'}
@@ -240,6 +247,35 @@ function DirectAllocationsTab() {
   const { show } = useToastStore()
   const [selected, setSelected] = useState<any | null>(null)
   const [bedId, setBedId] = useState('')
+  const [floorId, setFloorId] = useState<number | null>(null)
+  const [roomId, setRoomId] = useState<number | null>(null)
+  const [rent, setRent] = useState('')
+  const [advance, setAdvance] = useState('')
+  const [checkInDate, setCheckInDate] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
+  const [allocErr, setAllocErr] = useState<string | null>(null)
+
+  const { data: floors = [] } = useQuery({
+    queryKey: ['floors-availability', activeHostelId],
+    queryFn: () => getFloorsWithAvailability(activeHostelId!),
+    enabled: !!activeHostelId && !!selected,
+  })
+  const { data: rooms = [] } = useQuery({
+    queryKey: ['rooms-availability', floorId],
+    queryFn: () => getRoomsWithAvailability(floorId!),
+    enabled: !!floorId,
+  })
+  const { data: beds = [] } = useQuery({
+    queryKey: ['beds', roomId],
+    queryFn: () => getBedsByRoom(roomId!),
+    enabled: !!roomId,
+  })
+
+  function openAllocate(p: any) {
+    setSelected(p); setFloorId(null); setRoomId(null); setBedId(''); setRent(''); setAdvance(''); setAllocErr(null)
+  }
 
   const { data: pending = [], isLoading } = useQuery({
     queryKey: ['pendingAllocations', activeHostelId],
@@ -251,18 +287,34 @@ function DirectAllocationsTab() {
     mutationFn: (data: Record<string, unknown>) => allocateBed(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pendingAllocations', activeHostelId] })
+      queryClient.invalidateQueries({ queryKey: ['members', activeHostelId] })
+      queryClient.invalidateQueries({ queryKey: ['floors-availability', activeHostelId] })
+      queryClient.invalidateQueries({ queryKey: ['structure', activeHostelId] })
+      queryClient.invalidateQueries({ queryKey: ['occupancy', activeHostelId] })
+      queryClient.invalidateQueries({ queryKey: ['dues-pending', activeHostelId] })
       setSelected(null)
       setBedId('')
       show('success', 'Bed allocated', 'The applicant has been assigned a bed.')
     },
-    onError: () => {
-      show('error', 'Allocation failed', 'Could not allocate bed. Please try again.')
+    onError: (e: any) => {
+      setAllocErr(e?.response?.data?.message ?? 'Could not allocate bed. Please try again.')
     },
   })
 
   function handleAllocate(e: FormEvent) {
     e.preventDefault()
-    allocateMut.mutate({ bookingId: selected.id, bedId: bedId ? Number(bedId) : undefined })
+    if (!bedId) { setAllocErr('Select a bed.'); return }
+    if (rent !== '' && !(Number(rent) > 0)) { setAllocErr('Monthly rent must be greater than 0.'); return }
+    if (Number(advance || 0) < 0) { setAllocErr('Advance amount cannot be negative.'); return }
+    setAllocErr(null)
+    // API: hostellerAuthUserId (auth user, not profile id), bedId, checkInDate, monthlyRent (blank = hostel default)
+    allocateMut.mutate({
+      hostellerAuthUserId: selected.authUserId,
+      bedId: Number(bedId),
+      checkInDate,
+      ...(rent !== '' ? { monthlyRent: Number(rent) } : {}),
+      advanceAmount: Number(advance || 0),
+    })
   }
 
   if (isLoading) return (
@@ -309,12 +361,56 @@ function DirectAllocationsTab() {
               </div>
             </div>
             <form onSubmit={handleAllocate} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Bed ID</label>
-                <input required type="number" value={bedId} onChange={(e) => setBedId(e.target.value)}
-                  placeholder="Enter bed ID"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 focus:bg-white" />
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Floor</label>
+                  <select value={floorId ?? ''} onChange={(e) => { setFloorId(e.target.value ? Number(e.target.value) : null); setRoomId(null); setBedId('') }}
+                    className="w-full px-2.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-400">
+                    <option value="">Select…</option>
+                    {(floors as any[]).filter((f) => (f.availableBeds ?? 0) > 0).map((f: any) => (
+                      <option key={f.id} value={f.id}>{f.floorName}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Room</label>
+                  <select value={roomId ?? ''} disabled={!floorId} onChange={(e) => { setRoomId(e.target.value ? Number(e.target.value) : null); setBedId('') }}
+                    className="w-full px-2.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:opacity-50">
+                    <option value="">Select…</option>
+                    {(rooms as any[]).filter((r) => (r.availableBeds ?? 0) > 0).map((r: any) => (
+                      <option key={r.id} value={r.id}>{r.roomName ?? r.roomNumber}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Bed</label>
+                  <select required value={bedId} disabled={!roomId} onChange={(e) => { setBedId(e.target.value); setAllocErr(null) }}
+                    className="w-full px-2.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:opacity-50">
+                    <option value="">Select…</option>
+                    {(beds as any[]).filter((b) => b.status === 'AVAILABLE').map((b: any) => (
+                      <option key={b.id} value={b.id}>{b.bedName}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Rent (₹)</label>
+                  <input type="number" min={1} value={rent} onChange={(e) => setRent(e.target.value)} placeholder="Default"
+                    className="w-full px-2.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Advance (₹)</label>
+                  <input type="number" min={0} value={advance} onChange={(e) => setAdvance(e.target.value)} placeholder="0"
+                    className="w-full px-2.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Check-in</label>
+                  <input type="date" required value={checkInDate} onChange={(e) => setCheckInDate(e.target.value)}
+                    className="w-full px-2 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+                </div>
+              </div>
+              {allocErr && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{allocErr}</p>}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setSelected(null)}
                   className="flex-1 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm hover:bg-gray-50">Cancel</button>
@@ -374,11 +470,11 @@ function DirectAllocationsTab() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">
-                    {p.appliedDate ?? (p.appliedAt ? new Date(p.appliedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')}
+                    {fmtDate(p.appliedAt ?? p.createdAt)}
                   </td>
                   <td className="px-5 py-3.5"><Badge status={p.status ?? 'PENDING'} /></td>
                   <td className="px-5 py-3.5">
-                    <button onClick={() => setSelected(p)}
+                    <button onClick={() => openAllocate(p)}
                       className="flex items-center gap-1.5 text-emerald-600 hover:text-white font-semibold text-xs border border-emerald-200 bg-emerald-50 hover:bg-brand-600 px-3 py-1.5 rounded-lg transition-all">
                       Allocate Room
                     </button>
@@ -409,6 +505,12 @@ function BookingRequestsTab() {
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ['booking-requests', activeHostelId] })
+    queryClient.invalidateQueries({ queryKey: ['pendingAllocations', activeHostelId] })
+    queryClient.invalidateQueries({ queryKey: ['members', activeHostelId] })
+    queryClient.invalidateQueries({ queryKey: ['floors-availability', activeHostelId] })
+    queryClient.invalidateQueries({ queryKey: ['structure', activeHostelId] })
+    queryClient.invalidateQueries({ queryKey: ['occupancy', activeHostelId] })
+    queryClient.invalidateQueries({ queryKey: ['dues-pending', activeHostelId] })
     setModal(null)
   }
 
@@ -459,14 +561,24 @@ function BookingRequestsTab() {
                       : (req.mobile && <p className="text-xs text-gray-400">{req.mobile}</p>)}
                   </td>
                   <td className="px-5 py-3.5">
-                    <p className="font-medium text-gray-800">{req.bedName ?? `Bed #${req.bedId}`}</p>
-                    <p className="text-xs text-gray-400">{req.roomName ?? `Room #${req.roomId}`} · {req.floorName ?? `Floor #${req.floorId}`}</p>
+                    {req.reassignedBedId ? (
+                      <>
+                        <p className="font-medium text-gray-800">{req.reassignedBedName ?? `Bed #${req.reassignedBedId}`} <span className="text-[11px] font-semibold text-blue-600">(reassigned)</span></p>
+                        <p className="text-xs text-gray-400">{req.reassignedRoomName ?? ''}{req.reassignedFloorName ? ` · ${req.reassignedFloorName}` : ''}{!req.reassignedRoomName && <span className="line-through">{req.bedName} · {req.roomName}</span>}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-medium text-gray-800">{req.bedName ?? `Bed #${req.bedId}`}</p>
+                        <p className="text-xs text-gray-400">{req.roomName ?? `Room #${req.roomId}`} · {req.floorName ?? `Floor #${req.floorId}`}</p>
+                      </>
+                    )}
                   </td>
                   <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">{req.checkInDate ? fmtDate(req.checkInDate) : '—'}</td>
                   <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">{req.expiresAt ? fmtDate(req.expiresAt) : '—'}</td>
                   <td className="px-5 py-3.5"><Badge status={req.status} /></td>
                   <td className="px-5 py-3.5">
-                    {req.status === 'PENDING_APPROVAL' ? (
+                    {/* A reassigned request is still awaiting approval */}
+                    {req.status === 'PENDING_APPROVAL' || req.status === 'REASSIGNED' ? (
                       <div className="flex items-center gap-2 flex-wrap">
                         <button onClick={() => setModal({ type: 'approve', requestId: req.id })}
                           className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 hover:bg-emerald-100 transition-colors">

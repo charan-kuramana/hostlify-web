@@ -6,16 +6,11 @@ import Badge from '../../components/ui/Badge'
 import { getStaffDashboard } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
 
-const RECENT_ACTIVITY = [
-  { id: 1, text: 'Ravi Kumar allocated to room B-204',       time: '2h ago', type: 'ALLOCATED' },
-  { id: 2, text: 'Complaint #12 marked IN_PROGRESS',         time: '4h ago', type: 'IN_PROGRESS' },
-  { id: 3, text: 'Cash payment recorded for Priya Singh',    time: '5h ago', type: 'PAID' },
-  { id: 4, text: 'New leave request from Anil Mehta',        time: '6h ago', type: 'PENDING' },
-  { id: 5, text: 'Expense ₹2,400 added – Cleaning supplies', time: '1d ago', type: 'OPEN' },
-]
+const inr = (n: number) => '₹' + Number(n ?? 0).toLocaleString('en-IN')
+const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''
 
 const QUICK_ACTIONS = [
-  { label: 'Pending Allocations', to: '/admin/allocations', bg: 'bg-amber-50',   border: 'border-amber-100',   text: 'text-amber-700',   icon: ClipboardList },
+  { label: 'Booking Requests',    to: '/admin/allocations', bg: 'bg-amber-50',   border: 'border-amber-100',   text: 'text-amber-700',   icon: ClipboardList },
   { label: 'Record Payment',      to: '/admin/payments',    bg: 'bg-emerald-50', border: 'border-emerald-100', text: 'text-emerald-700', icon: TrendingUp },
   { label: 'View Complaints',     to: '/admin/complaints',  bg: 'bg-red-50',     border: 'border-red-100',     text: 'text-red-600',     icon: MessageSquare },
   { label: 'Post Announcement',   to: '/admin/announcements',bg: 'bg-brand-50', border: 'border-brand-100',  text: 'text-brand-700',  icon: Users },
@@ -30,9 +25,33 @@ export default function AdminDashboard() {
     enabled: !!activeHostelId,
   })
 
-  const pendingAllocationsCount = (data?.pendingAllocations ?? []).length
-  const membersCount = (data?.members ?? []).length
-  const pendingDuesCount = (data?.pendingDues ?? []).length
+  // Real figures for the active hostel (the old card counted every PENDING applicant platform-wide)
+  const pendingAllocationsCount = ((data?.bookingRequests ?? []) as any[])
+    .filter((r) => r.status === 'PENDING_APPROVAL' || r.status === 'REASSIGNED').length
+  const membersCount = ((data?.members ?? []) as any[]).filter((m) => m.status === 'ACTIVE').length
+  const pendingDues = (data?.pendingDues ?? []) as any[]
+  const pendingDuesAmount = pendingDues.reduce((s, d) => s + Math.max(0, Number(d.amount ?? 0) - Number(d.paidAmount ?? 0)), 0)
+  const now = new Date()
+  const monthPayments = ((data?.payments ?? []) as any[]).filter((p) => {
+    const d = p.paymentDate ? new Date(p.paymentDate) : null
+    return d && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+  })
+  const monthlyRevenue = monthPayments.reduce((s, p) => s + Number(p.amount ?? 0), 0)
+  const openComplaints = ((data?.complaints ?? []) as any[]).filter((c) => c.status === 'OPEN' || c.status === 'IN_PROGRESS')
+  const recentActivity = [
+    ...((data?.payments ?? []) as any[]).slice(0, 5).map((p) => ({
+      id: 'p' + p.id, type: 'PAID', date: p.paymentDate,
+      text: `${inr(p.amount)} received from ${p.hostellerName ?? 'resident'} (${p.paymentMethod ?? '—'})`,
+    })),
+    ...((data?.complaints ?? []) as any[]).slice(0, 5).map((c) => ({
+      id: 'c' + c.id, type: c.status, date: c.createdAt,
+      text: `Complaint: ${c.title}${c.hostellerName ? ' — ' + c.hostellerName : ''}`,
+    })),
+    ...((data?.bookingRequests ?? []) as any[]).slice(0, 5).map((r) => ({
+      id: 'r' + r.id, type: r.status, date: r.createdAt ?? r.checkInDate,
+      text: `Booking request: ${r.applicantName ?? 'applicant'} for ${r.roomName ?? 'room'} ${r.bedName ?? ''}`.trim(),
+    })),
+  ].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? ''))).slice(0, 6)
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
@@ -66,23 +85,23 @@ export default function AdminDashboard() {
           iconBg="bg-emerald-50"
         />
         <StatCard
-          label="Pending Allocations"
+          label="Pending Requests"
           value={pendingAllocationsCount}
-          sub="Awaiting room assignment"
+          sub="Booking requests to review"
           icon={<ClipboardList size={20} className="text-amber-600" />}
           iconBg="bg-amber-50"
         />
         <StatCard
           label="Pending Dues"
-          value={pendingDuesCount}
-          sub="Awaiting payment"
+          value={pendingDues.length}
+          sub={`${inr(pendingDuesAmount)} outstanding · ${openComplaints.length} open complaint${openComplaints.length === 1 ? '' : 's'}`}
           icon={<MessageSquare size={20} className="text-red-500" />}
           iconBg="bg-red-50"
         />
         <StatCard
-          label="Monthly Revenue"
-          value="₹—"
-          sub="See revenue report"
+          label="Collected This Month"
+          value={inr(monthlyRevenue)}
+          sub={`${monthPayments.length} payment${monthPayments.length === 1 ? '' : 's'} received`}
           icon={<TrendingUp size={20} className="text-brand-600" />}
           iconBg="bg-brand-50"
         />
@@ -122,11 +141,14 @@ export default function AdminDashboard() {
             <h2 className="font-semibold text-gray-800 text-sm">Recent Activity</h2>
           </div>
           <div className="divide-y divide-gray-50">
-            {RECENT_ACTIVITY.map((a) => (
+            {recentActivity.length === 0 && (
+              <p className="px-5 py-8 text-center text-sm text-gray-400">No recent activity</p>
+            )}
+            {recentActivity.map((a) => (
               <div key={a.id} className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50/70 transition-colors">
                 <Badge status={a.type} />
                 <p className="text-sm text-gray-700 flex-1 truncate">{a.text}</p>
-                <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">{a.time}</span>
+                <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">{fmtDate(a.date)}</span>
               </div>
             ))}
           </div>

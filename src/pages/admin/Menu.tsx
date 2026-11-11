@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Save, X } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
@@ -35,8 +35,8 @@ function rowsToItems(rows: MenuRow[]): { dayOfWeek: string; mealType: string; it
   const out: { dayOfWeek: string; mealType: string; items: string }[] = []
   rows.forEach((row) => {
     MEAL_TYPES.forEach((mt) => {
-      if (row[mt]) {
-        out.push({ dayOfWeek: row.day, mealType: mt, items: row[mt] })
+      if (row[mt].trim()) {
+        out.push({ dayOfWeek: row.day, mealType: mt.toUpperCase(), items: row[mt].trim() })
       }
     })
   })
@@ -65,11 +65,12 @@ export default function AdminMenu() {
 
   const menu: MenuRow[] = buildRows(menuItems)
 
-  useEffect(() => {
-    if (!editing) {
-      setDraft(buildRows(menuItems))
-    }
-  }, [menuItems, editing])
+  // Seed the draft from the saved menu when editing starts (an effect keyed on
+  // `menuItems` looped forever: the `= []` default is a new array every render).
+  function startEditing() {
+    setDraft(buildRows(menuItems))
+    setEditing(true)
+  }
 
   const saveMut = useMutation({
     mutationFn: (data: Record<string, unknown>) => saveMenu(data),
@@ -122,7 +123,7 @@ export default function AdminMenu() {
               </button>
             </div>
           ) : (
-            <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 px-4 py-2 text-sm text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50">
+            <button onClick={startEditing} className="flex items-center gap-1.5 px-4 py-2 text-sm text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50">
               <Pencil size={14} /> Edit Menu
             </button>
           )

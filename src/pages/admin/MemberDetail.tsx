@@ -1,9 +1,24 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Phone, Mail, Home, CreditCard, MessageSquare, Activity, LogOut } from 'lucide-react'
+import { ArrowLeft, Phone, Mail, Home, CreditCard, MessageSquare, Activity, LogOut, Pencil, X } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
-import { getMemberById, checkoutHosteller } from '../../api/staff'
+import {
+  getMemberById, checkoutHosteller, getAllDues, getHostelComplaints,
+  updateMember, getEmergencyContact, saveEmergencyContact,
+} from '../../api/staff'
+import { useAuthStore } from '../../store/authStore'
+import { useToastStore } from '../../store/toastStore'
+
+const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+const inr = (n: any) => '₹' + Number(n ?? 0).toLocaleString('en-IN')
+
+type EditForm = {
+  firstName: string; lastName: string; mobile: string; gender: string; dateOfBirth: string
+  permanentAddress: string; city: string; companyCollege: string
+  ecName: string; ecRelationship: string; ecMobile: string
+}
 
 const CATEGORY_COLORS: Record<string, string> = {
   Maintenance: 'bg-blue-50 text-blue-700',
@@ -24,8 +39,12 @@ export default function MemberDetail() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const { activeHostelId } = useAuthStore()
+  const { show } = useToastStore()
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [showCheckout, setShowCheckout] = useState(false)
+  const [checkoutReason, setCheckoutReason] = useState('')
+  const [edit, setEdit] = useState<EditForm | null>(null)
 
   const { data: member, isLoading } = useQuery({
     queryKey: ['member', id],
@@ -33,14 +52,77 @@ export default function MemberDetail() {
     enabled: !!id,
   })
 
+  const { data: emergency } = useQuery({
+    queryKey: ['member-emergency', id],
+    queryFn: () => getEmergencyContact(Number(id)),
+    enabled: !!id,
+  })
+  const { data: allDues = [] } = useQuery({
+    queryKey: ['dues-all', activeHostelId],
+    queryFn: () => getAllDues(activeHostelId!),
+    enabled: !!activeHostelId,
+  })
+  const { data: hostelComplaints = [] } = useQuery({
+    queryKey: ['complaints', activeHostelId],
+    queryFn: () => getHostelComplaints(activeHostelId!),
+    enabled: !!activeHostelId,
+  })
+
+  // Never fall back to the profile id here: it is a different id space and would check out someone else's booking
   const checkoutMut = useMutation({
-    mutationFn: () => checkoutHosteller(member?.bookingId ?? member?.id, {}),
+    mutationFn: () => checkoutHosteller(member!.bookingId, { reason: checkoutReason.trim() || undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['members'] })
+      queryClient.invalidateQueries({ queryKey: ['member', id] })
+      queryClient.invalidateQueries({ queryKey: ['structure', activeHostelId] })
+      queryClient.invalidateQueries({ queryKey: ['occupancy', activeHostelId] })
+      queryClient.invalidateQueries({ queryKey: ['floors-availability', activeHostelId] })
       setShowCheckout(false)
-      navigate(-1)
+      show('success', 'Checked out', `${member?.name ?? 'Member'} has been checked out and the bed is free.`)
+      navigate('/admin/members')
     },
+    onError: (e: any) => show('error', 'Checkout failed', e?.response?.data?.message ?? 'Please try again.'),
   })
+
+  const saveMut = useMutation({
+    mutationFn: async (f: EditForm) => {
+      await updateMember(Number(id), {
+        firstName: f.firstName.trim(), lastName: f.lastName.trim(), mobile: f.mobile.trim(),
+        gender: f.gender || undefined, dateOfBirth: f.dateOfBirth || undefined,
+        permanentAddress: f.permanentAddress.trim(), city: f.city.trim(), companyCollege: f.companyCollege.trim(),
+      })
+      if (f.ecName.trim() || f.ecMobile.trim() || emergency) {
+        await saveEmergencyContact(Number(id), { name: f.ecName.trim(), relationship: f.ecRelationship.trim(), mobile: f.ecMobile.trim() })
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member', id] })
+      queryClient.invalidateQueries({ queryKey: ['member-emergency', id] })
+      queryClient.invalidateQueries({ queryKey: ['members'] })
+      setEdit(null)
+      show('success', 'Profile updated')
+    },
+    onError: (e: any) => show('error', 'Save failed', e?.response?.data?.message ?? 'Please try again.'),
+  })
+
+  function openEdit() {
+    setEdit({
+      firstName: member.firstName ?? '', lastName: member.lastName ?? '', mobile: member.mobile ?? '',
+      gender: member.gender ?? '', dateOfBirth: member.dateOfBirth ?? '',
+      permanentAddress: member.permanentAddress ?? '', city: member.city ?? '', companyCollege: member.companyCollege ?? '',
+      ecName: emergency?.name ?? '', ecRelationship: emergency?.relationship ?? '', ecMobile: emergency?.mobile ?? '',
+    })
+  }
+
+  function submitEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!edit) return
+    if (!edit.firstName.trim()) { show('error', 'First name is required'); return }
+    if (edit.mobile && !/^[6-9]\d{9}$/.test(edit.mobile.trim())) { show('error', 'Invalid mobile', 'Enter a 10-digit Indian mobile number.'); return }
+    if (edit.ecMobile && !/^[6-9]\d{9}$/.test(edit.ecMobile.trim())) { show('error', 'Invalid emergency mobile', 'Enter a 10-digit Indian mobile number.'); return }
+    if (edit.dateOfBirth && edit.dateOfBirth > new Date().toISOString().slice(0, 10)) { show('error', 'Invalid date of birth'); return }
+    saveMut.mutate(edit)
+  }
 
   const TABS: { id: Tab; label: string; icon: typeof Home }[] = [
     { id: 'overview', label: 'Overview', icon: Home },
@@ -62,10 +144,16 @@ export default function MemberDetail() {
     </div>
   )
 
-  const payments: any[] = member.payments ?? []
-  const complaints: any[] = member.complaints ?? []
-  const activity: any[] = member.activity ?? []
-  const totalCollected = payments.filter((p: any) => p.status === 'PAID').reduce((s: number, p: any) => s + (p.amount ?? 0), 0)
+  const payments: any[] = (allDues as any[]).filter((d) => d.hostellerId === member.id)
+  const complaints: any[] = (hostelComplaints as any[]).filter((c) => c.hostellerId === member.id)
+  const totalCollected = payments.filter((p: any) => p.status === 'PAID').reduce((s: number, p: any) => s + Number(p.amount ?? 0), 0)
+  // Timeline built from real records (newest first)
+  const activity: any[] = [
+    ...(member.joinedDate ? [{ id: 'join', type: 'allocation', text: `Joined${member.roomNumber ? ' · room ' + member.roomNumber : ''}`, date: member.joinedDate }] : []),
+    ...payments.map((p) => ({ id: 'd' + p.id, type: 'payment', text: `Rent ${MONTHS[p.periodMonth] ?? ''} ${p.periodYear} — ${inr(p.amount)} (${p.status})`, date: p.dueDate })),
+    ...complaints.map((c) => ({ id: 'c' + c.id, type: 'complaint', text: `Complaint: ${c.title} (${c.status})`, date: c.createdAt })),
+  ].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))
+  const hasActiveBooking = !!member.bookingId && member.status === 'ACTIVE'
 
   return (
     <div className="space-y-6">
@@ -89,16 +177,26 @@ export default function MemberDetail() {
           />
         </div>
         <div className="px-6 pb-6">
-          <div className="flex items-end justify-between -mt-9 mb-4 gap-4">
+          <div className="relative z-10 flex items-end justify-between -mt-9 mb-4 gap-4">
             <div className="w-16 h-16 rounded-2xl bg-emerald-500 flex items-center justify-center text-xl font-bold text-white shadow-lg border-4 border-white shrink-0">
               {(member.name ?? '??').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
             </div>
-            <button
-              onClick={() => setShowCheckout(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-red-600 border border-red-200 hover:bg-red-50 transition-colors"
-            >
-              <LogOut size={15} /> Checkout Member
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={openEdit}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-brand-700 border border-brand-200 hover:bg-brand-50 transition-colors"
+              >
+                <Pencil size={14} /> Edit
+              </button>
+              {hasActiveBooking && (
+                <button
+                  onClick={() => { setCheckoutReason(''); setShowCheckout(true) }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-red-600 border border-red-200 hover:bg-red-50 transition-colors"
+                >
+                  <LogOut size={15} /> Checkout Member
+                </button>
+              )}
+            </div>
           </div>
           <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1 min-w-0">
@@ -125,8 +223,8 @@ export default function MemberDetail() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-gray-100 border-t border-gray-100">
           {[
             { label: 'Room', value: `${member.roomNumber ?? '—'}${member.type ? ' · ' + member.type : ''}` },
-            { label: 'Advance', value: member.advance != null ? `₹${member.advance.toLocaleString()}` : '—' },
-            { label: 'Monthly Rent', value: member.monthlyRent != null ? `₹${member.monthlyRent.toLocaleString()}` : '—' },
+            { label: 'Advance', value: member.advance != null ? inr(member.advance) : '—' },
+            { label: 'Monthly Rent', value: member.monthlyRent != null ? inr(member.monthlyRent) : '—' },
             { label: 'Join Date', value: member.joinDate ? new Date(member.joinDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—' },
           ].map((s) => (
             <div key={s.label} className="bg-white px-5 py-3.5 text-center">
@@ -166,12 +264,12 @@ export default function MemberDetail() {
               {[
                 ['Full Name', member.name],
                 ['Gender', member.gender ?? '—'],
-                ['Date of Birth', member.dob ?? '—'],
+                ['Date of Birth', member.dateOfBirth ? fmtDate(member.dateOfBirth) : '—'],
                 ['Phone', member.phone ?? '—'],
-                ['Email', member.email],
-                ['Address', member.address ?? '—'],
-                ['Floor', member.floor ?? '—'],
-                ['Bed Number', member.bedNumber ?? '—'],
+                ['Email', member.email ?? '—'],
+                ['Address', [member.permanentAddress, member.city, member.pincode].filter(Boolean).join(', ') || '—'],
+                ['College / Company', member.companyCollege ?? '—'],
+                ['ID Proof', member.idProofType ? `${member.idProofType}${member.idProofNumber ? ' · ' + member.idProofNumber : ''}` : '—'],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-start gap-4 px-5 py-3">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide w-32 shrink-0 pt-0.5">{label}</p>
@@ -185,20 +283,20 @@ export default function MemberDetail() {
               <h3 className="font-semibold text-gray-800 text-sm">Emergency Contact</h3>
             </div>
             <div className="p-5 space-y-3">
-              {member.emergencyContact ? (
+              {emergency?.name ? (
                 <>
                   <div className="flex items-center gap-3">
                     <div className="w-11 h-11 rounded-xl bg-rose-500 flex items-center justify-center text-sm font-bold text-white shrink-0">
-                      {(member.emergencyContact.name ?? '?')[0]}
+                      {(emergency.name ?? '?')[0]}
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900 text-sm">{member.emergencyContact.name}</p>
-                      <p className="text-xs text-gray-400">{member.emergencyContact.relation}</p>
+                      <p className="font-semibold text-gray-900 text-sm">{emergency.name}</p>
+                      <p className="text-xs text-gray-400">{emergency.relationship ?? '—'}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Phone size={14} className="text-gray-400" />
-                    {member.emergencyContact.phone}
+                    {emergency.mobile ?? '—'}
                   </div>
                 </>
               ) : (
@@ -223,25 +321,21 @@ export default function MemberDetail() {
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Month</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Amount</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Paid Date</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Method</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Reference</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Due Date</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {payments.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-5 py-10 text-center text-sm text-gray-400">No payment records available</td>
+                      <td colSpan={4} className="px-5 py-10 text-center text-sm text-gray-400">No payment records available</td>
                     </tr>
                   )}
                   {payments.map((p: any) => (
                     <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
-                      <td className="px-5 py-3.5 font-medium text-gray-800">{p.month}</td>
-                      <td className="px-5 py-3.5 font-bold text-gray-900">₹{(p.amount ?? 0).toLocaleString()}</td>
-                      <td className="px-5 py-3.5 text-gray-500">{p.paidDate ?? '—'}</td>
-                      <td className="px-5 py-3.5 text-gray-600">{p.method ?? '—'}</td>
-                      <td className="px-5 py-3.5 font-mono text-xs text-gray-500">{p.ref ?? '—'}</td>
+                      <td className="px-5 py-3.5 font-medium text-gray-800">{MONTHS[p.periodMonth] ?? ''} {p.periodYear}</td>
+                      <td className="px-5 py-3.5 font-bold text-gray-900">{inr(p.amount)}</td>
+                      <td className="px-5 py-3.5 text-gray-500">{fmtDate(p.dueDate)}</td>
                       <td className="px-5 py-3.5"><Badge status={p.status} /></td>
                     </tr>
                   ))}
@@ -270,7 +364,8 @@ export default function MemberDetail() {
                       {c.category}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400">{c.date ?? c.createdAt}</p>
+                  <p className="text-xs text-gray-400">{fmtDate(c.createdAt)}</p>
+                  {c.description && <p className="text-sm text-gray-600 mt-1">{c.description}</p>}
                 </div>
                 <Badge status={c.status} />
               </div>
@@ -294,7 +389,7 @@ export default function MemberDetail() {
                 </div>
                 <div className="pb-5">
                   <p className="text-sm text-gray-800 font-medium">{a.text}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{a.date}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{fmtDate(a.date)}</p>
                 </div>
               </div>
             ))}
@@ -313,6 +408,8 @@ export default function MemberDetail() {
             <p className="text-sm text-gray-500 mb-6">
               Are you sure you want to checkout <span className="font-semibold text-gray-700">{member.name}</span>? This will vacate room {member.roomNumber ?? '—'}.
             </p>
+            <input value={checkoutReason} onChange={(e) => setCheckoutReason(e.target.value)} placeholder="Reason (optional)"
+              className="w-full -mt-3 mb-5 px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-red-200" />
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCheckout(false)}
@@ -329,6 +426,59 @@ export default function MemberDetail() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {edit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <form onSubmit={submitEdit} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 my-8">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-900 text-lg">Edit Member</h3>
+              <button type="button" onClick={() => setEdit(null)} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([
+                ['firstName', 'First name', 'text'], ['lastName', 'Last name', 'text'],
+                ['mobile', 'Mobile', 'tel'], ['dateOfBirth', 'Date of birth', 'date'],
+                ['city', 'City', 'text'], ['companyCollege', 'College / Company', 'text'],
+              ] as [keyof EditForm, string, string][]).map(([k, label, type]) => (
+                <div key={k}>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
+                  <input type={type} value={edit[k]} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                </div>
+              ))}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Gender</label>
+                <select value={edit.gender} onChange={(e) => setEdit({ ...edit, gender: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300">
+                  <option value="">—</option><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option>
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Permanent address</label>
+                <input value={edit.permanentAddress} onChange={(e) => setEdit({ ...edit, permanentAddress: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+              </div>
+            </div>
+            <h4 className="font-semibold text-gray-800 text-sm mt-5 mb-2">Emergency contact</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {([['ecName', 'Name'], ['ecRelationship', 'Relationship'], ['ecMobile', 'Mobile']] as [keyof EditForm, string][]).map(([k, label]) => (
+                <div key={k}>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
+                  <input value={edit[k]} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button type="button" onClick={() => setEdit(null)} className="flex-1 px-4 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
+              <button type="submit" disabled={saveMut.isPending} className="flex-1 px-4 py-2.5 text-sm text-white rounded-xl font-semibold bg-brand-600 hover:bg-brand-700 disabled:opacity-60">
+                {saveMut.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

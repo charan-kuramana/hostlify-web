@@ -57,7 +57,9 @@ export default function AdminAnnouncements() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    createMut.mutate({ title: form.title, content: form.content, category: form.category || undefined })
+    if (!form.title.trim() || !form.content.trim()) { show('error', 'Title and message are required'); return }
+    // hostelId: owners with several hostels post to the one selected, not their first hostel
+    createMut.mutate({ hostelId: activeHostelId, title: form.title.trim(), content: form.content.trim(), category: form.category || undefined })
   }
 
   if (isLoading) return (
@@ -187,10 +189,13 @@ export default function AdminAnnouncements() {
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-xs font-medium text-gray-400 whitespace-nowrap bg-gray-50 px-2.5 py-1 rounded-lg">
                     {a.validFrom ? new Date(a.validFrom).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                    {a.validTill ? ` – ${new Date(a.validTill).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}
                   </span>
                   <button
-                    onClick={() => deleteMut.mutate(a.id)}
+                    onClick={() => { if (window.confirm(`Delete "${a.title}"? Residents will no longer see it.`)) deleteMut.mutate(a.id) }}
                     disabled={deleteMut.isPending}
+                    title="Delete announcement"
+                    aria-label="Delete announcement"
                     className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                   >
                     <X size={13} />

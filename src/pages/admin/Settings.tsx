@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Settings, QrCode, Building2, Save, Plus, ChevronDown, ChevronRight, Pencil, X, Check, BedDouble } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import {
-  getHostel, updateHostel, getHostelStructure, createFloor, createRoomWithBeds, createBed,
+  getHostel, updateHostel, getHostelStructure, createFloor, createRoomWithBeds, createBed, renameFloor,
 } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
@@ -15,9 +15,16 @@ interface HostelSettings {
   locality: string
   type: string
   contact: string
+  pincode: string
   defaultRent: number
-  advanceMonths: number
 }
+
+// Values stored in hostel_hostels.hostel_type
+const HOSTEL_TYPES: { value: string; label: string }[] = [
+  { value: 'BOYS', label: 'Gents Only' },
+  { value: 'GIRLS', label: 'Ladies Only' },
+  { value: 'MIXED', label: 'Co-ed' },
+]
 
 type TabType = 'general' | 'qr' | 'floors'
 
@@ -30,7 +37,7 @@ export default function AdminSettings() {
   const [saved, setSaved] = useState(false)
   const [settings, setSettings] = useState<HostelSettings>({
     hostelName: '', address: '', city: '', locality: '',
-    type: 'Gents Only', contact: '', defaultRent: 0, advanceMonths: 2,
+    type: 'MIXED', contact: '', pincode: '', defaultRent: 0,
   })
 
   // Floor editing state
@@ -67,11 +74,12 @@ export default function AdminSettings() {
         hostelName: hostel.name ?? hostel.hostelName ?? '',
         address: hostel.address ?? '',
         city: hostel.city ?? '',
-        locality: hostel.locality ?? '',
-        type: hostel.type ?? 'Gents Only',
-        contact: hostel.contact ?? hostel.phone ?? '',
-        defaultRent: hostel.defaultRent ?? 0,
-        advanceMonths: hostel.advanceMonths ?? 2,
+        // API field names: landmark (shown as locality), hostelType, contactPhone
+        locality: hostel.landmark ?? hostel.locality ?? '',
+        type: hostel.hostelType ?? 'MIXED',
+        contact: hostel.contactPhone ?? '',
+        pincode: hostel.pincode ?? '',
+        defaultRent: Number(hostel.defaultRent ?? 0),
       })
     }
   }, [hostel])
@@ -84,7 +92,17 @@ export default function AdminSettings() {
       setTimeout(() => setSaved(false), 2000)
       show('success', 'Saved', 'Hostel settings updated successfully.')
     },
-    onError: () => show('error', 'Save failed', 'Please try again.'),
+    onError: (err: any) => show('error', 'Save failed', err?.response?.data?.message ?? 'Please try again.'),
+  })
+
+  const renameFloorMut = useMutation({
+    mutationFn: ({ floorId, floorName }: { floorId: number; floorName: string }) => renameFloor(floorId, floorName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['structure', activeHostelId] })
+      setEditingFloorId(null)
+      show('success', 'Floor renamed')
+    },
+    onError: (err: any) => show('error', 'Rename failed', err?.response?.data?.message ?? 'Please try again.'),
   })
 
   const addFloorMut = useMutation({
@@ -132,15 +150,24 @@ export default function AdminSettings() {
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault()
+    if (!settings.hostelName.trim() || !settings.city.trim()) {
+      show('error', 'Missing details', 'Hostel name and city are required.'); return
+    }
+    if (settings.pincode && !/^\d{6}$/.test(settings.pincode.trim())) {
+      show('error', 'Invalid pincode', 'Pincode must be 6 digits.'); return
+    }
+    if (!(settings.defaultRent >= 0)) {
+      show('error', 'Invalid rent', 'Default rent cannot be negative.'); return
+    }
     updateMut.mutate({
-      name: settings.hostelName,
-      address: settings.address,
-      city: settings.city,
-      locality: settings.locality,
-      type: settings.type,
-      contact: settings.contact,
+      name: settings.hostelName.trim(),
+      address: settings.address.trim(),
+      city: settings.city.trim(),
+      locality: settings.locality.trim(),
+      hostelType: settings.type,
+      contactPhone: settings.contact.trim(),
+      ...(settings.pincode.trim() ? { pincode: settings.pincode.trim() } : {}),
       defaultRent: settings.defaultRent,
-      advanceMonths: settings.advanceMonths,
     })
   }
 
@@ -162,12 +189,25 @@ export default function AdminSettings() {
   function handleAddFloor(e: React.FormEvent) {
     e.preventDefault()
     if (!newFloorName.trim()) return
-    addFloorMut.mutate({ floorName: newFloorName.trim(), name: newFloorName.trim() })
+    if ((floors as any[]).some((f) => (f.floorName ?? '').toLowerCase() === newFloorName.trim().toLowerCase())) {
+      show('error', 'Duplicate floor', `A floor named "${newFloorName.trim()}" already exists.`); return
+    }
+    // floor_number drives ordering; append after the highest existing floor
+    const nextNumber = (floors as any[]).reduce((m, f) => Math.max(m, (f.floorNumber ?? -1) + 1), 0)
+    addFloorMut.mutate({ floorName: newFloorName.trim(), floorNumber: nextNumber })
   }
 
   function handleAddRoom(e: React.FormEvent, floorId: number) {
     e.preventDefault()
     if (!newRoom.roomNumber.trim()) return
+    const beds = Number(newRoom.totalBeds)
+    if (!Number.isInteger(beds) || beds < 1 || beds > 20) {
+      show('error', 'Invalid bed count', 'A room needs between 1 and 20 beds.'); return
+    }
+    const allRooms = (floors as any[]).flatMap((f) => f.rooms ?? [])
+    if (allRooms.some((r) => (r.roomNumber ?? '').toLowerCase() === newRoom.roomNumber.trim().toLowerCase())) {
+      show('error', 'Duplicate room', `Room ${newRoom.roomNumber.trim()} already exists.`); return
+    }
     addRoomMut.mutate({
       floorId,
       data: {
@@ -250,9 +290,7 @@ export default function AdminSettings() {
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Hostel Type</label>
                 <select value={settings.type} onChange={(e) => setSettings((s) => ({ ...s, type: e.target.value }))} className={inputCls + ' bg-white'}>
-                  <option>Gents Only</option>
-                  <option>Ladies Only</option>
-                  <option>Co-ed</option>
+                  {HOSTEL_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
               <div>
@@ -261,11 +299,11 @@ export default function AdminSettings() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Default Monthly Rent (₹)</label>
-                <input type="number" value={settings.defaultRent} onChange={(e) => setSettings((s) => ({ ...s, defaultRent: Number(e.target.value) }))} className={inputCls} />
+                <input type="number" min={0} value={settings.defaultRent} onChange={(e) => setSettings((s) => ({ ...s, defaultRent: Number(e.target.value) }))} className={inputCls} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Advance Months</label>
-                <input type="number" min={1} max={6} value={settings.advanceMonths} onChange={(e) => setSettings((s) => ({ ...s, advanceMonths: Number(e.target.value) }))} className={inputCls} />
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Pincode</label>
+                <input inputMode="numeric" maxLength={6} value={settings.pincode} onChange={(e) => setSettings((s) => ({ ...s, pincode: e.target.value.replace(/\D/g, '') }))} className={inputCls} />
               </div>
             </div>
             <div className="flex items-center gap-3 pt-2">
@@ -414,7 +452,8 @@ export default function AdminSettings() {
                           className="px-2.5 py-1 rounded-lg border border-emerald-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 font-semibold text-gray-800 w-44"
                         />
                         <button
-                          onClick={() => setEditingFloorId(null)}
+                          onClick={() => editFloorName.trim() && renameFloorMut.mutate({ floorId: floor.id, floorName: editFloorName.trim() })}
+                          disabled={renameFloorMut.isPending || !editFloorName.trim()}
                           title="Save floor name"
                           className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 hover:bg-emerald-100 transition-colors"
                         >

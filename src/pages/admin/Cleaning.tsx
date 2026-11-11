@@ -6,6 +6,7 @@ import PageHeader from '../../components/ui/PageHeader'
 import StatCard from '../../components/ui/StatCard'
 import { getHostelCleaning, updateCleaningStatus } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
+import { useToastStore } from '../../store/toastStore'
 
 const AVATAR_COLORS = [
   'bg-brand-500', 'bg-emerald-500', 'bg-purple-500',
@@ -21,6 +22,7 @@ type TabType = 'PENDING' | 'SCHEDULED' | 'COMPLETED'
 export default function Cleaning() {
   const { activeHostelId } = useAuthStore()
   const queryClient = useQueryClient()
+  const { show } = useToastStore()
   const [activeTab, setActiveTab] = useState<TabType>('PENDING')
 
   const { data: requests = [], isLoading } = useQuery({
@@ -32,9 +34,11 @@ export default function Cleaning() {
   const updateMut = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) =>
       updateCleaningStatus(id, status),
-    onSuccess: () => {
+    onSuccess: (_d, vars) => {
       queryClient.invalidateQueries({ queryKey: ['cleaning', activeHostelId] })
+      show('success', vars.status === 'COMPLETED' ? 'Marked complete' : 'Cleaning scheduled')
     },
+    onError: (e: any) => show('error', 'Update failed', e?.response?.data?.message ?? 'Could not update the request.'),
   })
 
   const pending = requests.filter((r: any) => r.status === 'PENDING')
@@ -140,19 +144,21 @@ export default function Cleaning() {
                     <div>
                       <p className="font-bold text-gray-800 text-sm">{req.hostellerName ?? req.memberName}</p>
                       <span className="font-mono text-xs font-bold bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg tracking-wider">
-                        {req.roomNumber ?? req.room}
+                        {req.roomNumber ?? req.room ?? '—'}
                       </span>
                     </div>
                     <Badge status={req.status} />
                   </div>
                   <div className="flex items-center gap-3 mt-2.5 flex-wrap">
-                    <span className="text-xs text-gray-400">Requested: <span className="font-medium text-gray-600">{req.preferredDate ?? req.requestedDate}</span></span>
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">
-                      <Clock size={11} />
-                      {req.timeSlot ?? req.preferredSlot ?? '—'}
-                    </span>
+                    <span className="text-xs text-gray-400">Requested: <span className="font-medium text-gray-600">{(req.requestDate ?? req.createdAt) ? new Date(req.requestDate ?? req.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</span></span>
+                    {(req.timeSlot ?? req.preferredSlot) && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">
+                        <Clock size={11} />
+                        {req.timeSlot ?? req.preferredSlot}
+                      </span>
+                    )}
                   </div>
-                  <p className="text-sm text-gray-500 mt-2 leading-relaxed">{req.notes}</p>
+                  {req.notes && <p className="text-sm text-gray-500 mt-2 leading-relaxed">{req.notes}</p>}
                   <div className="mt-3">
                     {req.status === 'PENDING' && (
                       <button

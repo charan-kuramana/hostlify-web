@@ -14,7 +14,7 @@ const EXPENSE_CATEGORIES = [
   'Meat/Eggs',
   'Other Expenses',
 ]
-const PAYMENT_MODES = ['CASH', 'ONLINE', 'CHEQUE']
+
 
 const CATEGORY_CHIP: Record<string, string> = {
   'Gas Bill':                'bg-orange-50 text-orange-700',
@@ -32,18 +32,20 @@ const CATEGORY_CHIP: Record<string, string> = {
 }
 
 const today = new Date().toISOString().split('T')[0]
-type ExpenseForm = { category: string; description: string; amount: string; expenseDate: string; paymentMode: string }
+type ExpenseForm = { category: string; description: string; amount: string; expenseDate: string; vendorName: string }
 
 export default function Expenses() {
   const { activeHostelId } = useAuthStore()
   const queryClient = useQueryClient()
   const { show } = useToastStore()
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState<ExpenseForm>({ category: '', description: '', amount: '', expenseDate: today, paymentMode: 'CASH' })
+  const [form, setForm] = useState<ExpenseForm>({ category: '', description: '', amount: '', expenseDate: today, vendorName: '' })
 
   const now = new Date()
-  const currentMonth = now.getMonth() + 1
-  const currentYear = now.getFullYear()
+  const [period, setPeriod] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+  const currentYear = Number(period.split('-')[0])
+  const currentMonth = Number(period.split('-')[1])
+  const periodLabel = new Date(currentYear, currentMonth - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
 
   const { data: expenses = [], isLoading } = useQuery({
     queryKey: ['expenses', activeHostelId, currentMonth, currentYear],
@@ -63,7 +65,7 @@ export default function Expenses() {
       queryClient.invalidateQueries({ queryKey: ['expenses', activeHostelId] })
       queryClient.invalidateQueries({ queryKey: ['expenseSummary', activeHostelId] })
       setShowForm(false)
-      setForm({ category: '', description: '', amount: '', expenseDate: today, paymentMode: 'CASH' })
+      setForm({ category: '', description: '', amount: '', expenseDate: today, vendorName: '' })
       show('success', 'Expense added', 'The expense has been recorded successfully.')
     },
     onError: () => {
@@ -101,7 +103,8 @@ export default function Expenses() {
       description: form.description,
       amount: Number(form.amount),
       expenseDate: form.expenseDate,
-      paymentMode: form.paymentMode,
+      vendorName: form.vendorName.trim() || undefined,
+      hostelId: activeHostelId,
     })
   }
 
@@ -141,8 +144,16 @@ export default function Expenses() {
             <TrendingDown size={14} className="text-white" />
           </div>
           <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.6)' }}>
-            Total Expenses This Month
+            Total Expenses · {periodLabel}
           </p>
+          <input
+            type="month"
+            value={period}
+            max={`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`}
+            onChange={(e) => e.target.value && setPeriod(e.target.value)}
+            aria-label="Expense month"
+            className="ml-auto text-xs rounded-lg px-2 py-1 bg-white/15 text-white border border-white/20 focus:outline-none [color-scheme:dark]"
+          />
         </div>
         <p className="text-3xl font-bold tracking-tight">₹{totalExpenses.toLocaleString()}</p>
         <div className="flex flex-wrap gap-2 mt-4">
@@ -226,14 +237,13 @@ export default function Expenses() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Payment Mode</label>
-                <select
-                  value={form.paymentMode}
-                  onChange={(e) => setForm((f) => ({ ...f, paymentMode: e.target.value }))}
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Vendor (optional)</label>
+                <input
+                  value={form.vendorName}
+                  onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 focus:bg-white transition-colors"
-                >
-                  {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
+                  placeholder="e.g. APCPDCL"
+                />
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-1">
@@ -266,7 +276,7 @@ export default function Expenses() {
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Category</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Description</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Date</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Added By</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Vendor</th>
                 <th className="text-right px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Amount</th>
               </tr>
             </thead>
@@ -280,10 +290,10 @@ export default function Expenses() {
                   </td>
                   <td className="px-5 py-3.5 text-gray-700 font-medium">{e.description}</td>
                   <td className="px-5 py-3.5 text-gray-500">
-                    {e.date ? new Date(e.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                    {(e.expenseDate ?? e.date) ? new Date(e.expenseDate ?? e.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
                   </td>
                   <td className="px-5 py-3.5">
-                    <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-lg">{e.addedBy ?? '—'}</span>
+                    <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-lg">{e.vendorName || '—'}</span>
                   </td>
                   <td className="px-5 py-3.5 text-right">
                     <span className="font-bold text-gray-900 flex items-center justify-end gap-0.5">
@@ -302,9 +312,9 @@ export default function Expenses() {
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-gray-200 bg-gray-50">
-                <td colSpan={4} className="px-5 py-3.5 font-bold text-gray-700">Total</td>
+                <td colSpan={4} className="px-5 py-3.5 font-bold text-gray-700">Total (listed expenses)</td>
                 <td className="px-5 py-3.5 text-right font-bold text-gray-900 text-base">
-                  ₹{totalExpenses.toLocaleString()}
+                  ₹{(expenses as any[]).reduce((s: number, e: any) => s + Number(e.amount ?? 0), 0).toLocaleString()}
                 </td>
               </tr>
             </tfoot>

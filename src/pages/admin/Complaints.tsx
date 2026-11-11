@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { MessageSquare } from 'lucide-react'
+import { MessageSquare, X } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import PageHeader from '../../components/ui/PageHeader'
 import { getHostelComplaints, resolveComplaint } from '../../api/staff'
@@ -32,6 +32,9 @@ export default function AdminComplaints() {
   const queryClient = useQueryClient()
   const { show } = useToastStore()
   const [statusFilter, setStatusFilter] = useState('ALL')
+  // Complaint open in the detail/resolve modal (pendingStatus = status chosen but not saved yet)
+  const [detail, setDetail] = useState<{ c: any; pendingStatus: string } | null>(null)
+  const [resolution, setResolution] = useState('')
 
   const { data: complaints = [], isLoading } = useQuery({
     queryKey: ['complaints', activeHostelId],
@@ -40,19 +43,18 @@ export default function AdminComplaints() {
   })
 
   const resolveMut = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) => {
+    mutationFn: ({ id, status, resolution }: { id: number; status: string; resolution?: string }) => {
       const payload: Record<string, unknown> = { status }
-      if (status === 'RESOLVED') {
-        payload.resolution = 'Resolved by staff'
-      }
+      if (resolution) payload.resolution = resolution
       return resolveComplaint(id, payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['complaints', activeHostelId] })
+      setDetail(null)
       show('success', 'Complaint updated', 'Status has been updated.')
     },
-    onError: () => {
-      show('error', 'Update failed', 'Could not update complaint status.')
+    onError: (e: any) => {
+      show('error', 'Update failed', e?.response?.data?.message ?? 'Could not update complaint status.')
     },
   })
 
@@ -60,8 +62,19 @@ export default function AdminComplaints() {
     ? complaints
     : complaints.filter((c: any) => c.status === statusFilter)
 
-  function updateStatus(id: number, status: string) {
-    resolveMut.mutate({ id, status })
+  function updateStatus(c: any, status: string) {
+    // Resolving/closing asks for resolution notes (visible to the resident); other moves save directly
+    if (status === 'RESOLVED' || status === 'CLOSED') {
+      setResolution(c.resolutionNotes ?? '')
+      setDetail({ c, pendingStatus: status })
+    } else {
+      resolveMut.mutate({ id: c.id, status })
+    }
+  }
+
+  function openDetail(c: any) {
+    setResolution(c.resolutionNotes ?? '')
+    setDetail({ c, pendingStatus: c.status })
   }
 
   if (isLoading) return (
@@ -120,12 +133,12 @@ export default function AdminComplaints() {
                       </div>
                       <div>
                         <p className="font-semibold text-gray-800">{c.hostellerName}</p>
-                        <p className="text-xs text-gray-400">Room {c.roomNumber}</p>
+                        <p className="text-xs text-gray-400">Room {c.roomNumber ?? '—'}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
-                    <p className="font-medium text-gray-800 truncate max-w-[180px]">{c.title}</p>
+                    <button type="button" onClick={() => openDetail(c)} title="View details" className="block font-medium text-gray-800 truncate max-w-[180px] text-left hover:text-brand-600 hover:underline">{c.title}</button>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full mt-1 inline-block ${CATEGORY_CHIP[c.category] ?? 'bg-gray-100 text-gray-600'}`}>
                       {c.category}
                     </span>
@@ -139,7 +152,7 @@ export default function AdminComplaints() {
                   <td className="px-5 py-3.5">
                     <select
                       value={c.status}
-                      onChange={(e) => updateStatus(c.id, e.target.value)}
+                      onChange={(e) => updateStatus(c, e.target.value)}
                       disabled={resolveMut.isPending}
                       className="text-xs border border-gray-200 rounded-xl px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 text-gray-700 font-medium disabled:opacity-60"
                     >
@@ -165,6 +178,49 @@ export default function AdminComplaints() {
           </table>
         </div>
       </div>
+
+      {detail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="font-bold text-gray-900">{detail.c.title}</h2>
+                <p className="text-xs text-gray-400 mt-0.5">{detail.c.hostellerName ?? '—'} · Room {detail.c.roomNumber ?? '—'} · {detail.c.category}</p>
+              </div>
+              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
+            </div>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-xl p-3">{detail.c.description || 'No description provided.'}</p>
+            <div className="mt-4">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Status</label>
+              <select value={detail.pendingStatus} onChange={(e) => setDetail({ ...detail, pendingStatus: e.target.value })}
+                className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300">
+                <option value="OPEN">Open</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="RESOLVED">Resolved</option>
+                <option value="CLOSED">Closed</option>
+              </select>
+            </div>
+            {(detail.pendingStatus === 'RESOLVED' || detail.pendingStatus === 'CLOSED') && (
+              <div className="mt-4">
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Resolution notes</label>
+                <textarea value={resolution} onChange={(e) => setResolution(e.target.value)} rows={3}
+                  placeholder="What was done to fix this?"
+                  className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 resize-none" />
+              </div>
+            )}
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setDetail(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50">Cancel</button>
+              <button
+                onClick={() => resolveMut.mutate({ id: detail.c.id, status: detail.pendingStatus, resolution: resolution.trim() || undefined })}
+                disabled={resolveMut.isPending || detail.pendingStatus === detail.c.status && resolution.trim() === (detail.c.resolutionNotes ?? '')
+                  || ((detail.pendingStatus === 'RESOLVED' || detail.pendingStatus === 'CLOSED') && !resolution.trim())}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60">
+                {resolveMut.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
