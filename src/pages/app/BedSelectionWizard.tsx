@@ -7,6 +7,8 @@ import {
   getFloorsWithAvailability,
   getRoomsWithAvailability,
   submitBookingRequest,
+  getMyBookingRequest,
+  retryUnless404,
 } from '../../api/hosteller'
 
 const STEPS = ['Floor', 'Pick a Bed', 'Confirm'] as const
@@ -157,7 +159,7 @@ function SeatMapStep({ floorId, selectedBed, onSelect }: { floorId: number; sele
             <div key={room.id ?? room.roomId} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider">{room.roomName ?? room.roomNumber}</span>
+                  <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider whitespace-nowrap">{room.roomName ?? room.roomNumber}</span>
                   {room.roomType && <span className="text-xs font-medium text-gray-500 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full">{room.roomType}</span>}
                 </div>
                 <div className="flex items-center gap-3">
@@ -186,6 +188,10 @@ function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, select
   const [checkInDate, setCheckInDate] = useState(today)
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  // A new request replaces any pending one (the old bed is released) — warn before that happens.
+  const { data: myRequest } = useQuery({ queryKey: ['my-booking-request'], queryFn: getMyBookingRequest, retry: retryUnless404 })
+  const replacesPending = myRequest?.status === 'PENDING_APPROVAL' || myRequest?.status === 'REASSIGNED'
 
   const queryClient = useQueryClient()
   const mutation = useMutation({
@@ -239,11 +245,17 @@ function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, select
         <span>Submitting reserves this bed for you (shown as <span className="font-semibold text-amber-600">Allocated · Waiting</span> to others) until staff confirm your booking. You'll then be asked to pay.</span>
       </div>
 
+      {replacesPending && (
+        <p className="text-sm text-amber-800 font-medium bg-amber-50 border border-amber-200 px-4 py-3 rounded-xl">
+          You already have a pending booking request. Submitting this one will cancel it and release that bed.
+        </p>
+      )}
+
       {error && <p className="text-sm text-red-500 font-medium bg-red-50 px-4 py-3 rounded-xl">{error}</p>}
 
       <button onClick={() => mutation.mutate()} disabled={mutation.isPending}
         className="w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-60 brand-gradient">
-        {mutation.isPending ? 'Submitting...' : 'Submit Booking Request'}
+        {mutation.isPending ? 'Submitting...' : replacesPending ? 'Replace My Pending Request' : 'Submit Booking Request'}
       </button>
     </div>
   )
