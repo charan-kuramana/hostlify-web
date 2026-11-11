@@ -29,8 +29,20 @@ export default function Payments() {
   const [confirmRecord, setConfirmRecord] = useState<any | null>(null)
   const [payMethod, setPayMethod] = useState('CASH')
   const [payRef, setPayRef] = useState('')
+  const [payAmount, setPayAmount] = useState('')
+  const [payErr, setPayErr] = useState<string | null>(null)
 
-  function openRecord(d: any) { setConfirmRecord(d); setPayMethod('CASH'); setPayRef('') }
+  // Outstanding = due amount minus what was already paid (paidAmount is sent by newer API builds)
+  const outstanding = (d: any) => Math.max(0, Number(d.amount ?? 0) - Number(d.paidAmount ?? 0))
+  function openRecord(d: any) { setConfirmRecord(d); setPayMethod('CASH'); setPayRef(''); setPayAmount(String(outstanding(d))); setPayErr(null) }
+
+  function submitPayment() {
+    const amt = Number(payAmount)
+    if (!(amt > 0)) { setPayErr('Amount must be greater than 0.'); return }
+    if (amt > outstanding(confirmRecord)) { setPayErr(`Amount cannot exceed the outstanding ${inr(outstanding(confirmRecord))}.`); return }
+    setPayErr(null)
+    recordMut.mutate({ dueId: confirmRecord.id, amount: amt, hostellerId: confirmRecord.hostellerId, paymentMethod: payMethod, transactionRef: payRef.trim() || undefined })
+  }
 
   const { data: pending = [], isLoading } = useQuery({ queryKey: ['dues-pending', activeHostelId], queryFn: () => getPendingDues(activeHostelId!), enabled: !!activeHostelId })
   const { data: allDues = [] } = useQuery({ queryKey: ['dues-all', activeHostelId], queryFn: () => getAllDues(activeHostelId!), enabled: !!activeHostelId && tab === 'all' })
@@ -42,8 +54,9 @@ export default function Payments() {
       queryClient.invalidateQueries({ queryKey: ['dues-pending', activeHostelId] })
       queryClient.invalidateQueries({ queryKey: ['dues-all', activeHostelId] })
       queryClient.invalidateQueries({ queryKey: ['pay-records', activeHostelId] })
+      queryClient.invalidateQueries({ queryKey: ['staffDashboard', activeHostelId] })
       setConfirmRecord(null)
-      show('success', 'Payment recorded', 'Cash payment has been recorded.')
+      show('success', 'Payment recorded', `${payMethod === 'CASH' ? 'Cash' : payMethod.replace('_', ' ')} payment has been recorded.`)
     },
     onError: (e: any) => show('error', 'Failed', e?.response?.data?.message ?? 'Could not record payment.'),
   })
@@ -60,9 +73,12 @@ export default function Payments() {
 
   const pendingList = pending as any[]
   const recordsList = records as any[]
-  const totalDue = pendingList.reduce((s, d) => s + Number(d.amount ?? 0), 0)
-  const overdue = pendingList.filter((d) => d.status === 'OVERDUE')
-  const totalOverdue = overdue.reduce((s, d) => s + Number(d.amount ?? 0), 0)
+  const totalDue = pendingList.reduce((s, d) => s + outstanding(d), 0)
+  // No job sets status=OVERDUE, so derive it from the due date
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const isOverdue = (d: any) => d.status !== 'PAID' && (d.status === 'OVERDUE' || (!!d.dueDate && d.dueDate < todayStr))
+  const overdue = pendingList.filter(isOverdue)
+  const totalOverdue = overdue.reduce((s, d) => s + outstanding(d), 0)
   const collected = recordsList.reduce((s, r) => s + Number(r.amount ?? 0), 0)
 
   if (isLoading) return <Spinner />
@@ -84,7 +100,7 @@ export default function Payments() {
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center"><IndianRupee size={15} className="text-emerald-600" /></div>
-                <h3 className="font-bold text-gray-900">Record Cash Payment</h3>
+                <h3 className="font-bold text-gray-900">Record Payment</h3>
               </div>
               <button onClick={() => setConfirmRecord(null)} className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors"><X size={15} /></button>
             </div>
@@ -97,11 +113,17 @@ export default function Payments() {
                 </div>
               </div>
               <div className="pt-2 border-t border-gray-100 mt-3">
-                <p className="text-xs text-gray-400 font-medium">Amount to record</p>
-                <p className="text-2xl font-bold text-gray-900 mt-0.5 tracking-tight">{inr(confirmRecord.amount)}</p>
+                <p className="text-xs text-gray-400 font-medium">Outstanding</p>
+                <p className="text-2xl font-bold text-gray-900 mt-0.5 tracking-tight">{inr(outstanding(confirmRecord))}</p>
+                {Number(confirmRecord.paidAmount ?? 0) > 0 && <p className="text-xs text-gray-400">of {inr(confirmRecord.amount)} · {inr(confirmRecord.paidAmount)} already paid</p>}
               </div>
             </div>
             <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Amount received (₹)</label>
+                <input type="number" min={1} value={payAmount} onChange={(e) => setPayAmount(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Payment Method</label>
                 <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}
@@ -119,10 +141,11 @@ export default function Payments() {
                     className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
                 </div>
               )}
+              {payErr && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{payErr}</p>}
             </div>
             <div className="flex gap-3">
               <button onClick={() => setConfirmRecord(null)} className="flex-1 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm hover:bg-gray-50 transition-colors">Cancel</button>
-              <button onClick={() => recordMut.mutate({ dueId: confirmRecord.id, amount: confirmRecord.amount, hostellerId: confirmRecord.hostellerId, paymentMethod: payMethod, transactionRef: payRef || undefined })}
+              <button onClick={submitPayment}
                 disabled={recordMut.isPending}
                 className="flex-1 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors disabled:opacity-60">
                 {recordMut.isPending ? 'Processing…' : 'Confirm Payment'}
@@ -134,9 +157,9 @@ export default function Payments() {
 
       {/* Summary stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Pending Due" value={inr(totalDue)} sub={`${pendingList.length} member${pendingList.length !== 1 ? 's' : ''} pending`} icon={<Clock size={20} className="text-amber-500" />} iconBg="bg-amber-50" />
+        <StatCard label="Pending Due" value={inr(totalDue)} sub={`${pendingList.length} due${pendingList.length !== 1 ? 's' : ''} pending`} icon={<Clock size={20} className="text-amber-500" />} iconBg="bg-amber-50" />
         <StatCard label="Collected" value={inr(collected)} sub={`${recordsList.length} payment${recordsList.length !== 1 ? 's' : ''} received`} icon={<CheckCircle2 size={20} className="text-emerald-600" />} iconBg="bg-emerald-50" />
-        <StatCard label="Overdue" value={inr(totalOverdue)} sub={`${overdue.length} member${overdue.length !== 1 ? 's' : ''} overdue`} icon={<AlertTriangle size={20} className="text-red-500" />} iconBg="bg-red-50" />
+        <StatCard label="Overdue" value={inr(totalOverdue)} sub={`${overdue.length} due${overdue.length !== 1 ? 's' : ''} overdue`} icon={<AlertTriangle size={20} className="text-red-500" />} iconBg="bg-red-50" />
       </div>
 
       {/* Tabs */}
@@ -166,11 +189,11 @@ export default function Payments() {
                         <p className="font-semibold text-gray-800">{d.hostellerName ?? '—'}</p>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5"><span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider">{d.roomNumber ?? '—'}</span></td>
+                    <td className="px-5 py-3.5"><span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider whitespace-nowrap">{d.roomNumber ?? '—'}</span></td>
                     <td className="px-5 py-3.5 text-gray-500">{period(d)}</td>
-                    <td className="px-5 py-3.5"><span className={`font-bold text-sm ${d.status === 'OVERDUE' ? 'text-red-600' : d.status === 'PAID' ? 'text-emerald-600' : 'text-gray-900'}`}>{inr(d.amount)}</span></td>
+                    <td className="px-5 py-3.5"><span className={`font-bold text-sm ${isOverdue(d) ? 'text-red-600' : d.status === 'PAID' ? 'text-emerald-600' : 'text-gray-900'}`}>{inr(d.amount)}</span>{Number(d.paidAmount ?? 0) > 0 && d.status !== 'PAID' && <p className="text-[11px] text-gray-400">{inr(d.paidAmount)} paid</p>}</td>
                     <td className="px-5 py-3.5 text-gray-500">{fmtDate(d.dueDate)}</td>
-                    <td className="px-5 py-3.5"><Badge status={d.status} /></td>
+                    <td className="px-5 py-3.5"><Badge status={isOverdue(d) && d.status === 'UNPAID' ? 'OVERDUE' : d.status} /></td>
                     {tab === 'pending' && (
                       <td className="px-5 py-3.5">
                         <button onClick={() => openRecord(d)} className="flex items-center gap-1.5 text-emerald-700 hover:text-white font-semibold text-xs border border-emerald-200 bg-emerald-50 hover:bg-brand-600 px-3 py-1.5 rounded-lg transition-all">

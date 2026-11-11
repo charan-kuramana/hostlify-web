@@ -4,11 +4,12 @@ import { Plus, X, UserCog, Mail, Phone, Shield, Trash2, Edit2, Briefcase, CheckC
 import PageHeader from '../../components/ui/PageHeader'
 import StatCard from '../../components/ui/StatCard'
 import Badge from '../../components/ui/Badge'
-import { getStaffMembers, createStaffMember, updateStaffMember, deactivateStaffMember, getEmployees, addEmployee, recordSalary, getPayrollSummary } from '../../api/staff'
+import { getStaffMembers, createStaffMember, updateStaffMember, deactivateStaffMember, getEmployees, addEmployee, recordSalary, getPayrollSummary, removeEmployee } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
 
-const SUB_ROLES = ['MANAGER', 'SUPERVISOR', 'RECEPTIONIST', 'SECURITY', 'CLEANER', 'OTHER']
+// ADMIN must be listed: editing an ADMIN account otherwise silently downgraded it to MANAGER
+const SUB_ROLES = ['ADMIN', 'MANAGER', 'SUPERVISOR', 'RECEPTIONIST', 'SECURITY', 'CLEANER', 'OTHER']
 
 type StaffForm = { email: string; mobile: string; subRole: string; password: string }
 const EMPTY_FORM: StaffForm = { email: '', mobile: '', subRole: 'MANAGER', password: '' }
@@ -22,7 +23,12 @@ function getInitials(name: string) {
 type TabType = 'staff' | 'employees'
 
 export default function StaffManagement() {
-  const { activeHostelId } = useAuthStore()
+  const { activeHostelId, subRole: mySubRole, email: myEmail } = useAuthStore()
+  // Only OWNER/ADMIN manage staff accounts; only an OWNER may grant or change ADMIN access
+  const canManageStaff = mySubRole === 'OWNER' || mySubRole === 'ADMIN'
+  const roleOptions = mySubRole === 'OWNER' ? SUB_ROLES : SUB_ROLES.filter((r) => r !== 'ADMIN')
+  const canEditRow = (s: any) => canManageStaff && s.subRole !== 'OWNER' && s.email !== myEmail
+    && (mySubRole === 'OWNER' || s.subRole !== 'ADMIN')
   const queryClient = useQueryClient()
   const { show } = useToastStore()
   const [activeTab, setActiveTab] = useState<TabType>('staff')
@@ -61,7 +67,7 @@ export default function StaffManagement() {
       setForm(EMPTY_FORM)
       show('success', 'Staff updated', 'Staff details have been updated.')
     },
-    onError: () => show('error', 'Update failed', 'Could not update staff details.'),
+    onError: (err: any) => show('error', 'Update failed', err?.response?.data?.message ?? 'Could not update staff details.'),
   })
 
   const deactivateMut = useMutation({
@@ -71,7 +77,7 @@ export default function StaffManagement() {
       setConfirmDeactivate(null)
       show('success', 'Staff deactivated', 'Staff member has been deactivated.')
     },
-    onError: () => show('error', 'Deactivation failed', 'Could not deactivate staff member.'),
+    onError: (err: any) => show('error', 'Deactivation failed', err?.response?.data?.message ?? 'Could not deactivate staff member.'),
   })
 
   function openCreate() {
@@ -88,6 +94,12 @@ export default function StaffManagement() {
 
   function handleStaffSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (form.mobile && !/^[6-9]\d{9}$/.test(form.mobile.trim())) {
+      show('error', 'Invalid mobile', 'Enter a 10-digit Indian mobile number.'); return
+    }
+    if (editId === null && form.password && form.password.length < 8) {
+      show('error', 'Weak password', 'Password must be at least 8 characters.'); return
+    }
     if (editId !== null) {
       updateMut.mutate({ id: editId, data: { mobile: form.mobile, subRole: form.subRole } })
     } else {
@@ -146,9 +158,19 @@ export default function StaffManagement() {
       setConfirmSalaryId(null)
       show('success', 'Salary recorded', 'Salary has been marked as paid.')
     },
-    onError: () => {
-      show('error', 'Failed to record salary', 'Please try again.')
+    onError: (err: any) => {
+      show('error', 'Failed to record salary', err?.response?.data?.message ?? 'Please try again.')
     },
+  })
+
+  const removeEmpMut = useMutation({
+    mutationFn: (id: number) => removeEmployee(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees', activeHostelId] })
+      queryClient.invalidateQueries({ queryKey: ['payroll', activeHostelId] })
+      show('success', 'Employee removed')
+    },
+    onError: (err: any) => show('error', 'Could not remove employee', err?.response?.data?.message ?? 'Please try again.'),
   })
 
   const now = new Date()
@@ -157,6 +179,8 @@ export default function StaffManagement() {
   function handleEmpSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!activeHostelId) { show('error', 'No hostel selected', 'Please select a hostel first.'); return }
+    if (!(Number(empForm.salary) > 0)) { show('error', 'Invalid salary', 'Monthly salary must be greater than 0.'); return }
+    if (empForm.mobile && !/^[6-9]\d{9}$/.test(empForm.mobile.trim())) { show('error', 'Invalid mobile', 'Enter a 10-digit Indian mobile number.'); return }
     addEmpMut.mutate({
       hostelId: activeHostelId,
       employeeName: empForm.employeeName,
@@ -207,7 +231,7 @@ export default function StaffManagement() {
       {/* ── Staff Accounts Tab ── */}
       {activeTab === 'staff' && (
         <>
-          <div className="flex justify-end">
+          {canManageStaff && <div className="flex justify-end">
             <button
               onClick={openCreate}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
@@ -215,7 +239,7 @@ export default function StaffManagement() {
             >
               <Plus size={16} /> Add Staff
             </button>
-          </div>
+          </div>}
 
           {/* Stat Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -284,7 +308,7 @@ export default function StaffManagement() {
                       onChange={(e) => setForm((f) => ({ ...f, subRole: e.target.value }))}
                       className={inputCls + ' bg-white'}
                     >
-                      {SUB_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                      {(roleOptions.includes(form.subRole) ? roleOptions : [form.subRole, ...roleOptions]).map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </div>
                   {!editId && (
@@ -371,7 +395,7 @@ export default function StaffManagement() {
                           <Badge status={s.status} />
                         </td>
                         <td className="px-5 py-3.5">
-                          <div className="flex justify-end gap-1.5">
+                          {canEditRow(s) ? <div className="flex justify-end gap-1.5">
                             <button
                               onClick={() => openEdit(s)}
                               className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center text-brand-600 hover:bg-brand-100 transition-colors"
@@ -386,7 +410,7 @@ export default function StaffManagement() {
                             >
                               <Trash2 size={12} />
                             </button>
-                          </div>
+                          </div> : <p className="text-right text-xs text-gray-300">—</p>}
                         </td>
                       </tr>
                     ))}
@@ -573,14 +597,24 @@ export default function StaffManagement() {
                       </p>
                     </div>
                   </div>
-                  {payrollByEmp[emp.id]?.status !== 'PAID' && (
+                  <div className="flex gap-2 mt-3">
+                    {payrollByEmp[emp.id]?.status !== 'PAID' && (
+                      <button
+                        onClick={() => setConfirmSalaryId(emp.id)}
+                        className="flex-1 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90 brand-gradient"
+                      >
+                        Pay Salary
+                      </button>
+                    )}
                     <button
-                      onClick={() => setConfirmSalaryId(emp.id)}
-                      className="w-full mt-3 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90 brand-gradient"
+                      onClick={() => { if (window.confirm(`Remove ${emp.name ?? 'this employee'} from the payroll?`)) removeEmpMut.mutate(emp.id) }}
+                      disabled={removeEmpMut.isPending}
+                      title="Remove employee"
+                      className="px-3 py-2 rounded-xl text-sm font-semibold text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-60"
                     >
-                      Pay Salary
+                      <Trash2 size={14} />
                     </button>
-                  )}
+                  </div>
                 </div>
               ))}
               {(employees as any[]).length === 0 && (
@@ -630,7 +664,7 @@ export default function StaffManagement() {
             </div>
             <h3 className="font-bold text-gray-900 text-lg mb-1">Record Salary Payment</h3>
             <p className="text-sm text-gray-500 mb-2">
-              Record ₹{((confirmEmployee.salary ?? confirmEmployee.baseSalary) ?? 0).toLocaleString()} salary payment for{' '}
+              Record {inr(payrollByEmp[confirmEmployee.id]?.payable ?? confirmEmployee.baseSalary ?? 0)} salary payment for{' '}
               <span className="font-semibold text-gray-700">{confirmEmployee.employeeName ?? confirmEmployee.name}</span>?
             </p>
             <p className="text-xs text-gray-400 mb-6">This will mark their salary as PAID for this month.</p>

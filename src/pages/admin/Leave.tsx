@@ -4,12 +4,18 @@ import { Users, UserCheck, UserMinus } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import PageHeader from '../../components/ui/PageHeader'
 import StatCard from '../../components/ui/StatCard'
-import { getPendingLeaves, reviewLeave, getLeaveOccupancy } from '../../api/staff'
+import { getHostelLeaves, reviewLeave, getLeaveOccupancy } from '../../api/staff'
 import { useToastStore } from '../../store/toastStore'
 import { useAuthStore } from '../../store/authStore'
 
 function todayISO(offset = 0) {
-  const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().split('T')[0]
+  // Local date (toISOString() is UTC and gives yesterday before 05:30 IST)
+  const d = new Date(); d.setDate(d.getDate() + offset)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function fmtDate(d?: string) {
+  return d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 }
 
 export default function AdminLeave() {
@@ -26,8 +32,9 @@ export default function AdminLeave() {
   })
 
   const { data: leaves = [], isLoading } = useQuery({
-    queryKey: ['leaves'],
-    queryFn: () => getPendingLeaves(),
+    queryKey: ['leaves', activeHostelId],
+    queryFn: () => getHostelLeaves(activeHostelId!),
+    enabled: !!activeHostelId,
   })
 
   const reviewMut = useMutation({
@@ -35,14 +42,15 @@ export default function AdminLeave() {
       reviewLeave(id, { status, ...(reason ? { reason } : {}) }),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['leaves'] })
+      queryClient.invalidateQueries({ queryKey: ['leave-occupancy'] })
       if (vars.status === 'APPROVED') {
         show('success', 'Leave approved', 'The leave request has been approved.')
       } else {
         show('success', 'Leave rejected', 'The leave request has been rejected.')
       }
     },
-    onError: () => {
-      show('error', 'Action failed', 'Could not process the leave request. Please try again.')
+    onError: (e: any) => {
+      show('error', 'Action failed', e?.response?.data?.message ?? 'Could not process the leave request. Please try again.')
     },
   })
 
@@ -109,13 +117,14 @@ export default function AdminLeave() {
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-gray-900">{l.hostellerName ?? l.applicantName}</p>
-                    <span className="text-xs text-gray-400">Room {l.roomNumber}</span>
+                    {l.roomNumber && <span className="text-xs text-gray-500">Room {l.roomNumber}</span>}
+                    {l.leaveType && <span className="text-xs text-gray-400">{l.leaveType}</span>}
                   </div>
                   <p className="text-sm text-gray-600 mt-1">
-                    {l.fromDate} → {l.toDate}
+                    {fmtDate(l.fromDate)} → {fmtDate(l.toDate)}
                   </p>
                   <p className="text-sm text-gray-500 mt-0.5">{l.reason}</p>
-                  <p className="text-xs text-gray-400 mt-1">Applied: {l.appliedAt ?? l.createdAt}</p>
+                  <p className="text-xs text-gray-400 mt-1">Applied: {fmtDate(l.appliedAt ?? l.createdAt)}</p>
                 </div>
                 <div className="flex gap-2 shrink-0">
                   <button
@@ -166,11 +175,11 @@ export default function AdminLeave() {
                 <tr key={l.id} className="hover:bg-gray-50">
                   <td className="px-5 py-3.5">
                     <p className="font-medium text-gray-800">{l.hostellerName ?? l.applicantName}</p>
-                    <p className="text-xs text-gray-400">Room {l.roomNumber}</p>
+                    <p className="text-xs text-gray-400">{[l.roomNumber && `Room ${l.roomNumber}`, l.leaveType].filter(Boolean).join(' · ')}</p>
                   </td>
-                  <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap">{l.fromDate} – {l.toDate}</td>
+                  <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap">{fmtDate(l.fromDate)} – {fmtDate(l.toDate)}</td>
                   <td className="px-5 py-3.5 text-gray-600 max-w-xs truncate">{l.reason}</td>
-                  <td className="px-5 py-3.5 text-gray-500">{l.appliedAt ?? l.createdAt}</td>
+                  <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">{fmtDate(l.appliedAt ?? l.createdAt)}</td>
                   <td className="px-5 py-3.5"><Badge status={l.status} /></td>
                 </tr>
               ))}

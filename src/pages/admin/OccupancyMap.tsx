@@ -1,13 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { Building2 } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
-import { getOccupancyFloors } from '../../api/staff'
+import { getHostelStructure } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
 
 interface Bed {
   id: number
   status: 'occupied' | 'available' | 'reserved'
   member?: string
+  bedName?: string
 }
 
 interface Room {
@@ -107,7 +108,7 @@ function FloorCard({ floor }: { floor: Floor }) {
                       className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-medium ${cfg.bg} ${cfg.text} ${cfg.border}`}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
-                      <span className="truncate">{bed.member ?? 'Free'}</span>
+                      <span className="truncate">{bed.member ?? bed.bedName ?? 'Bed'}</span>
                     </div>
                   )
                 })}
@@ -125,7 +126,8 @@ export default function OccupancyMap() {
 
   const { data: floors = [], isLoading } = useQuery({
     queryKey: ['occupancy', activeHostelId],
-    queryFn: () => getOccupancyFloors(activeHostelId!),
+    // /floors has no rooms/beds — the nested structure endpoint carries bed statuses
+    queryFn: () => getHostelStructure(activeHostelId!),
     enabled: !!activeHostelId,
   })
 

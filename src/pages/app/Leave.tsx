@@ -7,6 +7,9 @@ import StatCard from '../../components/ui/StatCard'
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
 import { getMyLeaves, applyLeave } from '../../api/hosteller'
+import NoStay from './NoStay'
+
+const todayStr = () => new Date().toLocaleDateString('en-CA') // local YYYY-MM-DD
 
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -21,7 +24,7 @@ const LEAVE_TYPES = [
 ]
 
 export default function Leave() {
-  const { hostellerProfileId } = useAuthStore()
+  const { hostellerProfileId, hostelId } = useAuthStore()
   const queryClient = useQueryClient()
   const { show } = useToastStore()
 
@@ -45,16 +48,21 @@ export default function Leave() {
       setForm({ fromDate: '', toDate: '', reason: '', leaveType: 'CASUAL' })
       show('success', 'Leave applied', 'Your leave request has been submitted for approval.')
     },
-    onError: () => {
-      show('error', 'Failed to apply leave', 'Please check your details and try again.')
+    onError: (e: any) => {
+      setShowVacateConfirm(false)
+      // 400/409 already toast the server's reason (api/client.ts)
+      if (![400, 409].includes(e?.response?.status)) show('error', 'Failed to apply leave', 'Please check your details and try again.')
     },
   })
 
   function validate() {
     const e: Partial<typeof form> = {}
     if (!form.fromDate) e.fromDate = 'From date is required'
+    else if (form.fromDate < todayStr()) e.fromDate = 'From date cannot be in the past'
     if (!form.toDate)   e.toDate   = 'To date is required'
+    else if (form.fromDate && form.toDate < form.fromDate) e.toDate = 'To date must be on or after the from date'
     if (!form.reason.trim()) e.reason = 'Reason is required'
+    else if (form.reason.trim().length > 1000) e.reason = 'Reason must be 1000 characters or less'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -73,7 +81,7 @@ export default function Leave() {
     applyMutation.mutate({
       fromDate: form.fromDate,
       toDate: form.toDate,
-      reason: form.reason,
+      reason: form.reason.trim(),
       leaveType: form.leaveType,
       hostellerProfileId,
     })
@@ -83,6 +91,8 @@ export default function Leave() {
   const approved = leavesList.filter((l: any) => l.status === 'APPROVED').length
   const pending = leavesList.filter((l: any) => l.status === 'PENDING').length
   const rejected = leavesList.filter((l: any) => l.status === 'REJECTED').length
+
+  if (!hostelId) return <NoStay title="Leave Requests" subtitle="Apply for leave and track approvals" />
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
@@ -177,6 +187,7 @@ export default function Leave() {
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">From Date</label>
                 <input
                   type="date"
+                  min={todayStr()}
                   value={form.fromDate}
                   onChange={(e) => { setForm((f) => ({ ...f, fromDate: e.target.value })); setErrors((er) => ({ ...er, fromDate: undefined })) }}
                   className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 focus:bg-white transition-colors ${errors.fromDate ? 'border-red-400' : 'border-gray-200'}`}
@@ -187,6 +198,7 @@ export default function Leave() {
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">To Date</label>
                 <input
                   type="date"
+                  min={form.fromDate || todayStr()}
                   value={form.toDate}
                   onChange={(e) => { setForm((f) => ({ ...f, toDate: e.target.value })); setErrors((er) => ({ ...er, toDate: undefined })) }}
                   className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 focus:bg-white transition-colors ${errors.toDate ? 'border-red-400' : 'border-gray-200'}`}
@@ -199,6 +211,7 @@ export default function Leave() {
               <textarea
                 required
                 rows={3}
+                maxLength={1000}
                 value={form.reason}
                 onChange={(e) => { setForm((f) => ({ ...f, reason: e.target.value })); setErrors((er) => ({ ...er, reason: undefined })) }}
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none bg-gray-50 focus:bg-white transition-colors ${errors.reason ? 'border-red-400' : 'border-gray-200'}`}

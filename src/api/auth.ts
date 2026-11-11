@@ -49,3 +49,9 @@ export const loginSuperAdmin = (data: LoginPayload) =>
 
 export const refreshAuthToken = (refreshToken: string) =>
   apiClient.post<ApiResponse<AuthData>>(`/auth/refresh?refreshToken=${refreshToken}`).then((r) => r.data)
+
+export const requestPasswordOtp = (email: string) =>
+  apiClient.post<ApiResponse<null>>('/auth/forgot-password', { email }).then((r) => r.data)
+
+export const resetPassword = (email: string, otp: string, newPassword: string) =>
+  apiClient.post<ApiResponse<null>>('/auth/reset-password', { email, otp, newPassword }).then((r) => r.data)

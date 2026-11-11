@@ -3,7 +3,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, X, SprayCan, Calendar } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import PageHeader from '../../components/ui/PageHeader'
-import { getMyCleaning, requestCleaning } from '../../api/hosteller'
+import { getMyCleaning, requestCleaning, cancelCleaning } from '../../api/hosteller'
+import { useAuthStore } from '../../store/authStore'
+import { useToastStore } from '../../store/toastStore'
+import NoStay from './NoStay'
+
+const todayStr = () => new Date().toLocaleDateString('en-CA') // local YYYY-MM-DD
+
+// The API has no time-slot column, so the slot travels as a "[slot] " prefix on notes.
+function splitSlot(r: any): { slot?: string; notes?: string } {
+  if (r.timeSlot || r.slot) return { slot: r.timeSlot ?? r.slot, notes: r.notes }
+  const m = /^\[([^\]]+)\]\s*(.*)$/s.exec(r.notes ?? '')
+  return m ? { slot: m[1], notes: m[2] || undefined } : { notes: r.notes }
+}
 
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -20,6 +32,8 @@ const SLOT_COLORS: Record<string, string> = {
 
 export default function Cleaning() {
   const queryClient = useQueryClient()
+  const { hostelId } = useAuthStore()
+  const { show } = useToastStore()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ preferredDate: '', slot: '', notes: '' })
 
@@ -34,19 +48,38 @@ export default function Cleaning() {
       queryClient.invalidateQueries({ queryKey: ['my-cleaning'] })
       setShowForm(false)
       setForm({ preferredDate: '', slot: '', notes: '' })
+      show('success', 'Cleaning requested', 'Housekeeping will visit at your preferred slot.')
+    },
+    onError: (e: any) => {
+      if (![400, 409].includes(e?.response?.status)) show('error', 'Request failed', 'Could not submit your cleaning request. Please try again.')
+    },
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) => cancelCleaning(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-cleaning'] })
+      show('success', 'Request cancelled', 'Your cleaning request was cancelled.')
+    },
+    onError: (e: any) => {
+      if (![400, 409].includes(e?.response?.status)) show('error', 'Could not cancel', 'Please try again or ask the reception.')
     },
   })
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (form.preferredDate < todayStr()) { show('error', 'Invalid date', 'Preferred date cannot be in the past.'); return }
+    const notes = [form.slot ? `[${form.slot}]` : '', form.notes.trim()].filter(Boolean).join(' ')
     requestMutation.mutate({
       preferredDate: form.preferredDate,
       timeSlot: form.slot,
-      notes: form.notes,
+      notes: notes || undefined,
     })
   }
 
   const cleaningList = cleaningData ?? []
+
+  if (!hostelId) return <NoStay title="Cleaning Requests" subtitle="Request room cleaning service" />
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
@@ -99,6 +132,7 @@ export default function Cleaning() {
                 <input
                   type="date"
                   required
+                  min={todayStr()}
                   value={form.preferredDate}
                   onChange={(e) => setForm((f) => ({ ...f, preferredDate: e.target.value }))}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 focus:bg-white transition-colors"
@@ -127,6 +161,7 @@ export default function Cleaning() {
               </label>
               <textarea
                 rows={2}
+                maxLength={450}
                 value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                 placeholder="Any specific instructions…"
@@ -156,7 +191,7 @@ export default function Cleaning() {
 
       {/* My Requests Cards */}
       <div className="space-y-3">
-        {cleaningList.map((r: any) => (
+        {cleaningList.map((r: any) => { const { slot, notes } = splitSlot(r); return (
           <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start justify-between gap-4 mb-3">
               <div className="flex items-center gap-3">
@@ -173,22 +208,28 @@ export default function Cleaning() {
               </div>
             </div>
             <div className="flex items-center gap-3 flex-wrap">
-              <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${SLOT_COLORS[r.timeSlot] ?? SLOT_COLORS[r.slot] ?? 'bg-gray-100 text-gray-600'}`}>
-                {r.timeSlot ?? r.slot ?? '—'}
-              </span>
-              {r.notes && (
-                <p className="text-sm text-gray-500 flex-1">{r.notes}</p>
+              {slot && (
+                <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${SLOT_COLORS[slot] ?? 'bg-gray-100 text-gray-600'}`}>
+                  {slot}
+                </span>
+              )}
+              {notes && (
+                <p className="text-sm text-gray-500 flex-1">{notes}</p>
               )}
             </div>
             {r.status === 'PENDING' && (
               <div className="mt-3 pt-3 border-t border-gray-50">
-                <button className="text-xs font-semibold text-red-500 hover:text-red-600 transition-colors">
-                  Cancel Request
+                <button
+                  onClick={() => { if (window.confirm('Cancel this cleaning request?')) cancelMutation.mutate(r.id) }}
+                  disabled={cancelMutation.isPending}
+                  className="text-xs font-semibold text-red-500 hover:text-red-600 transition-colors disabled:opacity-50"
+                >
+                  {cancelMutation.isPending && cancelMutation.variables === r.id ? 'Cancelling…' : 'Cancel Request'}
                 </button>
               </div>
             )}
           </div>
-        ))}
+        ) })}
         {cleaningList.length === 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
             <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">

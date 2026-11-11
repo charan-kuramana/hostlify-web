@@ -1,73 +1,54 @@
-# React + TypeScript + Vite
+# Hostlify Web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + TypeScript + Vite front end for Hostlify, a hostel management platform. It serves three portals from one app:
 
-Currently, two official plugins are available:
+| Portal | Path | Login |
+| --- | --- | --- |
+| Hosteller (residents) | `/app/*` | `/auth/login` |
+| Staff (owners, admins, managers) | `/admin/*` | `/auth/staff/login` |
+| Super Admin | `/super-admin/*` | `/auth/super-admin/login` |
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The API lives in [hostlify-api](https://github.com/charan-kuramana/hostlify-api).
 
-## React Compiler
+## Tech stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+React 19 · TypeScript · Vite 7 · Tailwind CSS 4 · TanStack Query · Zustand · React Router 6 · Axios · lucide-react
 
-## Expanding the ESLint configuration
+## Run locally
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+1. Start the API and database (see the hostlify-api README: `docker compose up -d`).
+2. Install and run the web app:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev        # http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The API URL comes from `.env` (`VITE_API_URL=http://localhost:8090/api/v1`).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Demo logins (password `Test@1234` for all): `superadmin@test.com`, `owner.bliss@test.com`, `hosteller@test.com`.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Dev server with hot reload |
+| `npm run build` | Type-check and production build into `dist/` |
+| `npm run lint` | ESLint |
+| `npm run preview` | Serve the production build |
+
+## Project layout
+
+```
+src/
+  api/          API wrappers per portal (auth, hosteller, staff, superadmin) + axios client with token refresh
+  guards/       AuthGuard (login redirect per portal) and RoleGuard
+  layouts/      Shared portal shell + one layout per portal
+  pages/
+    auth/       Login, signup, forgot password
+    app/        Hosteller pages
+    admin/      Staff pages
+    super-admin/
+  store/        Zustand auth and toast stores
+  components/   Shared UI
 ```

@@ -4,7 +4,9 @@ import { Plus, X, Wrench, Zap, Droplets, Sofa, SprayCan, Wind, HelpCircle } from
 import Badge from '../../components/ui/Badge'
 import PageHeader from '../../components/ui/PageHeader'
 import { useAuthStore } from '../../store/authStore'
+import { useToastStore } from '../../store/toastStore'
 import { getMyComplaints, createComplaint } from '../../api/hosteller'
+import NoStay from './NoStay'
 
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -35,6 +37,7 @@ const STATUS_CHIP: Record<string, string> = {
 export default function Service() {
   const { hostellerProfileId, hostelId } = useAuthStore()
   const queryClient = useQueryClient()
+  const { show } = useToastStore()
 
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ category: '', description: '' })
@@ -51,14 +54,19 @@ export default function Service() {
       queryClient.invalidateQueries({ queryKey: ['my-complaints', hostellerProfileId] })
       setShowForm(false)
       setForm({ category: '', description: '' })
+      show('success', 'Request submitted', 'Our staff will attend to it shortly.')
+    },
+    onError: (e: any) => {
+      if (![400, 409].includes(e?.response?.status)) show('error', 'Failed to submit', 'Could not submit your request. Please try again.')
     },
   })
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!form.category || !form.description.trim()) return
     createMutation.mutate({
       category: form.category,
-      description: form.description,
+      description: form.description.trim(),
       hostellerProfileId,
       hostelId,
       title: `${form.category} Issue`,
@@ -73,6 +81,8 @@ export default function Service() {
   const servicesList = (services ?? []).filter((s: any) =>
     SERVICE_CATEGORIES.includes(s.category)
   )
+
+  if (!hostelId) return <NoStay title="Service Requests" subtitle="Request maintenance and other services" />
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
@@ -159,6 +169,7 @@ export default function Service() {
               <textarea
                 required
                 rows={3}
+                maxLength={2000}
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none bg-gray-50 focus:bg-white transition-colors"

@@ -22,7 +22,8 @@ const CONFIG: Record<string, { bg: string; dot: string; text: string; label?: st
   // Generic lifecycle
   ACTIVE:          { ...GREEN },
   INACTIVE:        { ...GRAY },
-  APPROVED:        { ...GREEN },
+  SUSPENDED:       { ...RED },
+  APPROVED:       { ...GREEN },
   REJECTED:        { ...RED },
   CANCELLED:       { ...GRAY },
   EXPIRED:         { ...GRAY },

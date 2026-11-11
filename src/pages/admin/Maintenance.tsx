@@ -27,6 +27,9 @@ export default function Maintenance() {
   const { show } = useToastStore()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ category: '', title: '', description: '', assignedTo: '', estCost: '', status: 'OPEN' })
+  // Task being marked COMPLETED — asks for the actual cost before saving
+  const [completing, setCompleting] = useState<any | null>(null)
+  const [actualCost, setActualCost] = useState('')
 
   const { data: logs = [], isLoading } = useQuery({
     queryKey: ['maintenance', activeHostelId],
@@ -49,9 +52,10 @@ export default function Maintenance() {
   })
 
   const statusMut = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) => updateMaintenanceStatus(id, status),
+    mutationFn: ({ id, status, actualCost }: { id: number; status: string; actualCost?: number }) => updateMaintenanceStatus(id, status, actualCost),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['maintenance', activeHostelId] })
+      setCompleting(null)
       show('success', 'Status updated', 'Maintenance status has been updated.')
     },
     onError: (err: any) => {
@@ -67,13 +71,14 @@ export default function Maintenance() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!activeHostelId) { show('error', 'No hostel selected', 'Please select a hostel first.'); return }
+    if (form.estCost && Number(form.estCost) < 0) { show('error', 'Invalid cost', 'Estimated cost cannot be negative.'); return }
+    // The API stores a single description: first line is the title, the rest is detail
     createMut.mutate({
       hostelId: activeHostelId,
       category: form.category,
-      title: form.title,
-      description: form.description || form.title,
-      vendor: form.assignedTo,
-      assignedTo: form.assignedTo,
+      description: form.description.trim() ? `${form.title.trim()}
+${form.description.trim()}` : form.title.trim(),
+      vendorName: form.assignedTo.trim(),
       estimatedCost: form.estCost ? Number(form.estCost) : undefined,
       status: form.status,
     })
@@ -121,7 +126,7 @@ export default function Maintenance() {
         <StatCard
           label="Completed"
           value={completedCount}
-          sub="Resolved this month"
+          sub="Total completed"
           icon={<Wrench size={20} className="text-emerald-600" />}
           iconBg="bg-emerald-50"
         />
@@ -263,24 +268,32 @@ export default function Maintenance() {
                   <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">
                     {l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : (l.date ?? '—')}
                   </td>
-                  <td className="px-5 py-3.5 font-medium text-gray-800">{l.title}</td>
+                  <td className="px-5 py-3.5 max-w-xs">
+                    <p className="font-medium text-gray-800">{(l.description ?? '').split('\n')[0] || '—'}</p>
+                    {(l.description ?? '').includes('\n') && (
+                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{l.description.split('\n').slice(1).join(' ')}</p>
+                    )}
+                  </td>
                   <td className="px-5 py-3.5">
                     <span className={`text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap ${CATEGORY_COLORS[l.category] ?? 'bg-gray-100 text-gray-600'}`}>
                       {l.category}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-gray-600">{l.vendor ?? l.assignedTo ?? '—'}</td>
+                  <td className="px-5 py-3.5 text-gray-600">{l.vendorName || '—'}</td>
                   <td className="px-5 py-3.5 text-right font-medium text-gray-700">
-                    {l.estimatedCost != null ? `₹${(l.estimatedCost).toLocaleString()}` : '—'}
+                    {l.estimatedCost != null ? `₹${Number(l.estimatedCost).toLocaleString('en-IN')}` : '—'}
                   </td>
                   <td className="px-5 py-3.5 text-right font-medium text-gray-700">
-                    {l.actualCost != null ? `₹${l.actualCost.toLocaleString()}` : '—'}
+                    {l.actualCost != null ? `₹${Number(l.actualCost).toLocaleString('en-IN')}` : '—'}
                   </td>
                   <td className="px-5 py-3.5"><Badge status={l.status} /></td>
                   <td className="px-5 py-3.5">
                     <select
                       value={l.status}
-                      onChange={(e) => statusMut.mutate({ id: l.id, status: e.target.value })}
+                      onChange={(e) => {
+                        if (e.target.value === 'COMPLETED') { setActualCost(l.actualCost != null ? String(l.actualCost) : ''); setCompleting(l) }
+                        else statusMut.mutate({ id: l.id, status: e.target.value })
+                      }}
                       disabled={statusMut.isPending}
                       className="text-xs font-semibold border border-gray-200 bg-white rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:opacity-60 cursor-pointer"
                     >
@@ -295,6 +308,31 @@ export default function Maintenance() {
           </table>
         </div>
       </div>
+
+      {completing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-gray-900">Mark as completed</h2>
+              <button onClick={() => setCompleting(null)} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">{(completing.description ?? '').split('\n')[0]}</p>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Actual cost (₹, optional)</label>
+            <input type="number" min={0} value={actualCost} onChange={(e) => setActualCost(e.target.value)}
+              placeholder={completing.estimatedCost != null ? `Estimated ₹${completing.estimatedCost}` : '0'}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setCompleting(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50">Cancel</button>
+              <button
+                onClick={() => statusMut.mutate({ id: completing.id, status: 'COMPLETED', actualCost: actualCost !== '' ? Number(actualCost) : undefined })}
+                disabled={statusMut.isPending || (actualCost !== '' && Number(actualCost) < 0)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60">
+                {statusMut.isPending ? 'Saving…' : 'Complete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Mail, Phone, Shield, Camera, Save, AlertTriangle } from 'lucide-react'
+import { Mail, Shield, Save, AlertTriangle } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import { useAuthStore } from '../../store/authStore'
+import { changeStaffPassword } from '../../api/staff'
 
 interface PasswordState {
   current: string
@@ -22,36 +23,34 @@ function getInitials(email: string) {
 export default function Account() {
   const { email, subRole } = useAuthStore()
   const [passwords, setPasswords] = useState<PasswordState>({ current: '', newPass: '', confirm: '' })
-  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [passError, setPassError] = useState('')
   const [passMsg, setPassMsg] = useState('')
 
   const displayRole = subRole ?? 'ADMIN'
   const displayEmail = email ?? ''
 
-  function handleProfileSave(e: React.FormEvent) {
+  // Only the password is editable here (email is the login id). The old handler showed
+  // "Saved successfully!" / "coming soon" without calling any API.
+  async function handleProfileSave(e: React.FormEvent) {
     e.preventDefault()
-
-    if (passwords.newPass || passwords.confirm) {
-      if (passwords.newPass !== passwords.confirm) {
-        setPassError('New passwords do not match.')
-        return
-      }
-      if (passwords.newPass.length < 8) {
-        setPassError('Password must be at least 8 characters.')
-        return
-      }
-      // Password change endpoint not yet available
-      setPassMsg('Password change feature coming soon.')
-      setPasswords({ current: '', newPass: '', confirm: '' })
-      setPassError('')
-      return
-    }
-
+    setPassMsg('')
+    if (!passwords.current) { setPassError('Enter your current password.'); return }
+    if (passwords.newPass.length < 8) { setPassError('Password must be at least 8 characters.'); return }
+    if (passwords.newPass !== passwords.confirm) { setPassError('New passwords do not match.'); return }
     setPassError('')
-    setPasswords({ current: '', newPass: '', confirm: '' })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+    setSaving(true)
+    try {
+      await changeStaffPassword(passwords.current, passwords.newPass)
+      setPasswords({ current: '', newPass: '', confirm: '' })
+      setPassMsg('Password changed.')
+    } catch (err: any) {
+      setPassError(err?.response?.status === 404 || err?.response?.status === 405
+        ? 'Password change is not available on this server yet.'
+        : err?.response?.data?.message ?? 'Could not change password.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -76,9 +75,6 @@ export default function Account() {
               >
                 {getInitials(displayEmail)}
               </div>
-              <button className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm hover:bg-gray-50 transition-colors">
-                <Camera size={11} className="text-gray-500" />
-              </button>
             </div>
             <div className="pb-0.5">
               <p className="font-bold text-gray-900">{displayEmail}</p>
@@ -95,10 +91,6 @@ export default function Account() {
               <Mail size={12} className="text-gray-400" />
               {displayEmail}
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-gray-500">
-              <Phone size={12} className="text-gray-400" />
-              —
-            </div>
           </div>
         </div>
       </div>
@@ -107,7 +99,7 @@ export default function Account() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Edit Profile */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h3 className="font-bold text-gray-800 text-sm mb-5">Edit Profile</h3>
+          <h3 className="font-bold text-gray-800 text-sm mb-5">Login & Security</h3>
           <form onSubmit={handleProfileSave} className="space-y-5">
             {/* Email (read-only) */}
             <div>
@@ -161,7 +153,7 @@ export default function Account() {
                   <p className="text-xs text-red-500 font-medium">{passError}</p>
                 )}
                 {passMsg && (
-                  <p className="text-xs text-amber-600 font-medium">{passMsg}</p>
+                  <p className="text-xs text-emerald-600 font-medium">{passMsg}</p>
                 )}
               </div>
             </div>
@@ -169,17 +161,13 @@ export default function Account() {
             <div className="flex items-center gap-3 pt-1">
               <button
                 type="submit"
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold shadow-sm hover:opacity-90 transition-opacity"
+                disabled={saving}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold shadow-sm hover:opacity-90 transition-opacity disabled:opacity-60"
                 style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}
               >
                 <Save size={14} />
-                Save Changes
+                {saving ? 'Updating…' : 'Update Password'}
               </button>
-              {saved && (
-                <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full">
-                  Saved successfully!
-                </span>
-              )}
             </div>
           </form>
         </div>
@@ -192,14 +180,9 @@ export default function Account() {
             </div>
             <h3 className="font-bold text-gray-800 text-sm">Danger Zone</h3>
           </div>
-          <p className="text-xs text-gray-500 leading-relaxed mb-5">
-            Deactivating your account will revoke your access to the staff portal immediately. This action can be reversed by a Super Admin.
-          </p>
-          <button className="w-full py-2.5 rounded-xl border-2 border-red-200 text-red-600 text-sm font-bold hover:bg-red-50 transition-colors">
-            Deactivate My Account
-          </button>
-          <p className="text-xs text-gray-400 mt-3 text-center leading-relaxed">
-            You will be logged out and your access will be suspended.
+          {/* The former "Deactivate My Account" button had no handler or API */}
+          <p className="text-xs text-gray-500 leading-relaxed">
+            To deactivate this staff account, ask the hostel owner (Staff & Employees page) or Hostlify support.
           </p>
         </div>
       </div>

@@ -16,8 +16,7 @@ import {
   Layers,
   CheckCircle2,
 } from 'lucide-react'
-import Badge from '../../components/ui/Badge'
-import { getHostelDetail } from '../../api/hosteller'
+import { getHostelDetail, getMyBooking } from '../../api/hosteller'
 
 const AMENITY_META: Record<string, { label: string; icon: React.ReactNode }> = {
   wifi:      { label: 'Wi-Fi',     icon: <Wifi size={14} /> },
@@ -27,6 +26,8 @@ const AMENITY_META: Record<string, { label: string; icon: React.ReactNode }> = {
   gym:       { label: 'Gym',       icon: <Dumbbell size={14} /> },
   laundry:   { label: 'Laundry',   icon: <WashingMachine size={14} /> },
 }
+
+const HOSTEL_TYPE_LABEL: Record<string, string> = { BOYS: 'Boys', GIRLS: 'Girls', MIXED: 'Co-ed', MALE: 'Boys', FEMALE: 'Girls', COED: 'Co-ed', 'CO-ED': 'Co-ed' }
 
 function getAmenityMeta(key: string) {
   return AMENITY_META[key.toLowerCase()] ?? { label: key, icon: <CheckCircle2 size={14} /> }
@@ -51,6 +52,9 @@ export default function HostelDetail() {
     enabled: !!id,
   })
 
+  // An active resident can't book a second bed — show that instead of the booking CTA.
+  const { data: activeBooking } = useQuery({ queryKey: ['my-booking-sync'], queryFn: getMyBooking, retry: false })
+
   if (isLoading) return <Spinner />
 
   if (isError || !hostel) {
@@ -65,15 +69,15 @@ export default function HostelDetail() {
     )
   }
 
-  const enabledAmenities: string[] = Array.isArray(hostel.amenities)
-    ? hostel.amenities.filter((a: any) => a.enabled).map((a: any) => a.key as string)
+  const enabledAmenities: { key: string; label?: string }[] = Array.isArray(hostel.amenities)
+    ? hostel.amenities.filter((a: any) => a.enabled).map((a: any) => ({ key: String(a.key), label: a.label }))
     : []
 
   const pricing: any[] = hostel.pricingTiers ?? hostel.pricing ?? []
   const floors: any[] = hostel.floors ?? []
 
   return (
-    <div className="space-y-6 pb-24">
+    <div className="space-y-6 pb-40 lg:pb-24">
       {/* Back */}
       <button
         onClick={() => navigate(-1)}
@@ -92,16 +96,20 @@ export default function HostelDetail() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold text-gray-900 tracking-tight">{hostel.name}</h1>
-                {hostel.type && <Badge status={hostel.type} />}
+                {(hostel.hostelType ?? hostel.type) && (
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">
+                    {HOSTEL_TYPE_LABEL[hostel.hostelType ?? hostel.type] ?? (hostel.hostelType ?? hostel.type)}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1 mt-1">
                 <MapPin size={13} className="text-gray-400" />
-                <p className="text-sm text-gray-500">{hostel.city}{hostel.address ? `, ${hostel.address}` : ''}</p>
+                <p className="text-sm text-gray-500">{hostel.address || hostel.city}</p>
               </div>
-              {hostel.phone && (
+              {(hostel.contactPhone ?? hostel.phone) && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <Phone size={13} className="text-gray-400" />
-                  <p className="text-sm text-gray-500">{hostel.phone}</p>
+                  <p className="text-sm text-gray-500">{hostel.contactPhone ?? hostel.phone}</p>
                 </div>
               )}
             </div>
@@ -120,7 +128,7 @@ export default function HostelDetail() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <h2 className="font-semibold text-gray-800 text-sm mb-3">Amenities</h2>
           <div className="flex flex-wrap gap-2">
-            {enabledAmenities.map((key) => {
+            {enabledAmenities.map(({ key, label }) => {
               const meta = getAmenityMeta(key)
               return (
                 <span
@@ -128,7 +136,7 @@ export default function HostelDetail() {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-100"
                 >
                   {meta.icon}
-                  {meta.label}
+                  {AMENITY_META[key.toLowerCase()] ? meta.label : (label ?? meta.label)}
                 </span>
               )
             })}
@@ -156,7 +164,7 @@ export default function HostelDetail() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-0.5 text-gray-800 font-semibold">
                         <IndianRupee size={13} className="text-gray-500" />
-                        {tier.baseRent?.toLocaleString() ?? '—'}
+                        {tier.baseRent != null ? Number(tier.baseRent).toLocaleString('en-IN') : '—'}
                         <span className="text-xs text-gray-400 font-normal ml-0.5">/mo</span>
                       </div>
                     </td>
@@ -177,7 +185,7 @@ export default function HostelDetail() {
           <h2 className="font-semibold text-gray-800 text-sm mb-3">Floors & Availability</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {floors.map((floor: any) => (
-              <div key={floor.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+              <div key={floor.floorId ?? floor.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
                 <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shadow-sm shrink-0">
                   <Layers size={15} className="text-brand-500" />
                 </div>
@@ -197,15 +205,22 @@ export default function HostelDetail() {
       )}
 
       {/* CTA */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 shadow-lg z-10">
+      {/* bottom-16 on mobile: sit above the bottom tab bar (z-40), which used to hide this CTA */}
+      <div className="fixed bottom-16 lg:bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 shadow-lg z-30">
         <div className="max-w-screen-xl mx-auto">
-          <button
-            onClick={() => navigate(`/app/hostel/${hostelId}/book`)}
-            className="w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity hover:opacity-90"
-            style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}
-          >
-            Select Bed &amp; Book
-          </button>
+          {activeBooking ? (
+            <p className="text-center text-sm font-semibold text-gray-500 py-2">
+              You already have an active stay{activeBooking.hostelId === id ? ' at this hostel' : ''} — contact your hostel to change beds.
+            </p>
+          ) : (
+            <button
+              onClick={() => navigate(`/app/hostel/${hostelId}/book`)}
+              className="w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity hover:opacity-90"
+              style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}
+            >
+              Select Bed &amp; Book
+            </button>
+          )}
         </div>
       </div>
     </div>

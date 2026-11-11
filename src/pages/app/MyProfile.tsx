@@ -5,7 +5,7 @@ import PageHeader from '../../components/ui/PageHeader'
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
 import {
-  getHostellerProfile, updateHostellerProfile, getMyBooking,
+  getHostellerProfile, updateHostellerProfile, getMyStay, retryUnless404,
   getEmergencyContact, saveEmergencyContact, uploadProfilePhoto, uploadIdProof,
 } from '../../api/hosteller'
 
@@ -67,7 +67,8 @@ export default function MyProfile() {
 
   const { data: booking, isLoading: bookingLoading } = useQuery({
     queryKey: ['my-booking'],
-    queryFn: getMyBooking,
+    queryFn: getMyStay,
+    retry: retryUnless404, // 404 = no approved booking yet (pending hosteller)
   })
 
   // Emergency contact (separate record)
@@ -91,21 +92,28 @@ export default function MyProfile() {
       queryClient.invalidateQueries({ queryKey: ['profile-completion'] })
       show('success', 'Saved', 'Emergency contact updated.')
     },
-    onError: () => show('error', 'Save failed', 'Could not save emergency contact.'),
+    onError: (e: any) => { if (e?.response?.status !== 400) show('error', 'Save failed', 'Could not save emergency contact.') },
   })
+
+  // Reset input above so picking the same file again re-triggers; validate before uploading.
+  function checkFile(f: File, types: string[]) {
+    if (!types.some((t) => f.type.startsWith(t))) { show('error', 'Unsupported file', 'Please choose an image' + (types.length > 1 ? ' or PDF.' : '.')); return false }
+    if (f.size > 5 * 1024 * 1024) { show('error', 'File too large', 'Please choose a file under 5 MB.'); return false }
+    return true
+  }
 
   const photoMutation = useMutation({
     mutationFn: (file: File) => uploadProfilePhoto(hostellerProfileId!, file),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['profile', hostellerProfileId] }); show('success', 'Photo updated', 'Your profile photo was uploaded.') },
-    onError: () => show('error', 'Upload failed', 'Photo storage is not configured. Please try later.'),
+    onError: () => show('error', 'Upload failed', 'Could not upload your photo right now. Please try again later.'),
   })
   const idMutation = useMutation({
     mutationFn: (file: File) => uploadIdProof(hostellerProfileId!, file),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['profile', hostellerProfileId] }); show('success', 'ID uploaded', 'Your ID document was uploaded.') },
-    onError: () => show('error', 'Upload failed', 'Document storage is not configured. Please try later.'),
+    onError: () => show('error', 'Upload failed', 'Could not upload your document right now. Please try again later.'),
   })
 
-  useEffect(() => {
+  function resetForm() {
     if (profile) {
       // support both { name, phone } and { firstName, lastName, mobile } shapes
       const nameParts = (profile.name ?? '').split(' ')
@@ -126,7 +134,14 @@ export default function MyProfile() {
         idProofNumber:    profile.idProofNumber ?? '',
       })
     }
-  }, [profile])
+  }
+  useEffect(resetForm, [profile])
+
+  function cancelEdit() {
+    resetForm()   // discard unsaved edits
+    setFormErr(null)
+    setEditing(false)
+  }
 
   const updateMutation = useMutation({
     mutationFn: (data: ProfileForm) => updateHostellerProfile(hostellerProfileId!, data as unknown as Record<string, unknown>),
@@ -135,14 +150,29 @@ export default function MyProfile() {
       setEditing(false)
       show('success', 'Profile updated', 'Your information has been saved.')
     },
-    onError: () => {
-      show('error', 'Update failed', 'Could not save your changes. Please try again.')
+    onError: (e: any) => {
+      // 400s already raise a toast with the server's reason (api/client.ts)
+      if (e?.response?.status !== 400) show('error', 'Update failed', 'Could not save your changes. Please try again.')
     },
   })
 
+  const [formErr, setFormErr] = useState<string | null>(null)
+
   function handleSave(e: FormEvent) {
     e.preventDefault()
-    updateMutation.mutate(form)
+    const err =
+      !form.firstName.trim() ? 'First name is required.'
+      : !/^[6-9]\d{9}$/.test(form.mobile) ? 'Mobile must be a valid 10-digit number.'
+      : form.altMobile && !/^[6-9]\d{9}$/.test(form.altMobile) ? 'Alt. mobile must be a valid 10-digit number.'
+      : form.pincode && !/^\d{6}$/.test(form.pincode) ? 'Pincode must be 6 digits.'
+      : form.dateOfBirth && form.dateOfBirth > new Date().toLocaleDateString('en-CA') ? 'Date of birth cannot be in the future.'
+      : null
+    setFormErr(err)
+    if (err) return
+    // email is the login identity and is not editable here
+    const payload: Partial<ProfileForm> = { ...form, firstName: form.firstName.trim(), lastName: form.lastName.trim() }
+    delete payload.email
+    updateMutation.mutate(payload as ProfileForm)
   }
 
   function field(key: keyof ProfileForm) {
@@ -159,13 +189,13 @@ export default function MyProfile() {
   )
 
   const displayName = [form.firstName, form.lastName].filter(Boolean).join(' ') || '—'
-  const hostelName  = booking?.hostel?.name ?? '—'
-  const roomNumber  = booking?.room?.roomNumber ?? '—'
-  const bedLabel    = booking?.bed?.bedNumber ?? booking?.bed?.bedName ?? '—'
-  const floorLabel  = booking?.floor?.floorName ?? booking?.floor?.name ?? '—'
-  const checkIn     = booking?.checkInDate ? fmtDate(booking.checkInDate) : '—'
-  const monthlyRent = booking?.monthlyRent != null ? `₹${Number(booking.monthlyRent).toLocaleString()}` : '—'
-  const bkStatus    = booking?.status ?? '—'
+  const hostelName  = booking?.hostelName ?? '—'
+  const roomNumber  = booking?.roomName ?? profile?.roomNumber ?? '—'
+  const bedLabel    = booking?.bedName ?? '—'
+  const floorLabel  = booking?.floorName ?? '—'
+  const checkIn     = booking?.checkinDate ? fmtDate(booking.checkinDate) : '—'
+  const monthlyRent = booking?.rentAmount != null ? `₹${Number(booking.rentAmount).toLocaleString('en-IN')}` : '—'
+  const bkStatus    = booking?.status ?? 'No active stay'
 
   const initials = displayName !== '—'
     ? displayName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
@@ -180,7 +210,7 @@ export default function MyProfile() {
           editing ? (
             <div className="flex gap-2">
               <button
-                onClick={() => setEditing(false)}
+                onClick={cancelEdit}
                 className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors"
               >
                 <X size={14} /> Cancel
@@ -226,7 +256,7 @@ export default function MyProfile() {
             >
               <Camera size={13} />
               <input type="file" accept="image/*" className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) photoMutation.mutate(f) }} />
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f && checkFile(f, ['image/'])) photoMutation.mutate(f) }} />
             </label>
           </div>
           <h2 className="text-xl font-bold text-gray-900">{displayName}</h2>
@@ -244,7 +274,7 @@ export default function MyProfile() {
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">First Name</label>
               {editing ? (
-                <input className={inputCls} value={form.firstName} onChange={field('firstName')} placeholder="First name" />
+                <input className={inputCls} maxLength={80} value={form.firstName} onChange={field('firstName')} placeholder="First name" />
               ) : (
                 <p className="text-sm text-gray-800 font-medium py-2.5">{form.firstName || '—'}</p>
               )}
@@ -252,7 +282,7 @@ export default function MyProfile() {
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Last Name</label>
               {editing ? (
-                <input className={inputCls} value={form.lastName} onChange={field('lastName')} placeholder="Last name" />
+                <input className={inputCls} maxLength={80} value={form.lastName} onChange={field('lastName')} placeholder="Last name" />
               ) : (
                 <p className="text-sm text-gray-800 font-medium py-2.5">{form.lastName || '—'}</p>
               )}
@@ -260,7 +290,7 @@ export default function MyProfile() {
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Date of Birth</label>
               {editing ? (
-                <input type="date" className={inputCls} value={form.dateOfBirth} onChange={field('dateOfBirth')} />
+                <input type="date" className={inputCls} value={form.dateOfBirth} max={new Date().toLocaleDateString('en-CA')} onChange={field('dateOfBirth')} />
               ) : (
                 <p className="text-sm text-gray-800 font-medium py-2.5">{form.dateOfBirth ? fmtDate(form.dateOfBirth) : '—'}</p>
               )}
@@ -294,7 +324,7 @@ export default function MyProfile() {
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Company / College</label>
               {editing ? (
-                <input className={inputCls} value={form.companyCollege} onChange={field('companyCollege')} placeholder="Your company or college" />
+                <input className={inputCls} maxLength={200} value={form.companyCollege} onChange={field('companyCollege')} placeholder="Your company or college" />
               ) : (
                 <p className="text-sm text-gray-800 font-medium py-2.5">{form.companyCollege || '—'}</p>
               )}
@@ -308,16 +338,13 @@ export default function MyProfile() {
           <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Email Address</label>
-              {editing ? (
-                <input type="email" className={inputCls} value={form.email} onChange={field('email')} placeholder="Email" />
-              ) : (
-                <p className="text-sm text-gray-800 font-medium py-2.5">{form.email || '—'}</p>
-              )}
+              <p className="text-sm text-gray-800 font-medium py-2.5">{form.email || '—'}</p>
+              {editing && <p className="text-[11px] text-gray-400 -mt-1">Login email can't be changed here.</p>}
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Mobile</label>
               {editing ? (
-                <input type="tel" className={inputCls} value={form.mobile} onChange={field('mobile')} placeholder="Mobile number" />
+                <input type="tel" inputMode="numeric" maxLength={10} className={inputCls} value={form.mobile} onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))} placeholder="Mobile number" />
               ) : (
                 <p className="text-sm text-gray-800 font-medium py-2.5">{form.mobile || '—'}</p>
               )}
@@ -325,7 +352,7 @@ export default function MyProfile() {
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Alt. Mobile</label>
               {editing ? (
-                <input type="tel" className={inputCls} value={form.altMobile} onChange={field('altMobile')} placeholder="Alternate mobile" />
+                <input type="tel" inputMode="numeric" maxLength={10} className={inputCls} value={form.altMobile} onChange={(e) => setForm((f) => ({ ...f, altMobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))} placeholder="Alternate mobile" />
               ) : (
                 <p className="text-sm text-gray-800 font-medium py-2.5">{form.altMobile || '—'}</p>
               )}
@@ -355,7 +382,7 @@ export default function MyProfile() {
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">City</label>
                 {editing ? (
-                  <input className={inputCls} value={form.city} onChange={field('city')} placeholder="City" />
+                  <input className={inputCls} maxLength={100} value={form.city} onChange={field('city')} placeholder="City" />
                 ) : (
                   <p className="text-sm text-gray-800 font-medium py-2.5">{form.city || '—'}</p>
                 )}
@@ -363,7 +390,7 @@ export default function MyProfile() {
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Pincode</label>
                 {editing ? (
-                  <input className={inputCls} value={form.pincode} onChange={field('pincode')} placeholder="Pincode" />
+                  <input className={inputCls} inputMode="numeric" maxLength={6} value={form.pincode} onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))} placeholder="Pincode" />
                 ) : (
                   <p className="text-sm text-gray-800 font-medium py-2.5">{form.pincode || '—'}</p>
                 )}
@@ -381,7 +408,7 @@ export default function MyProfile() {
               {editing ? (
                 <select className={selectCls} value={form.idProofType} onChange={field('idProofType')}>
                   <option value="">Select ID type</option>
-                  <option value="AADHAR">Aadhar</option>
+                  <option value="AADHAAR">Aadhaar</option>
                   <option value="PAN">PAN</option>
                   <option value="PASSPORT">Passport</option>
                   <option value="DRIVING_LICENSE">Driving License</option>
@@ -394,7 +421,7 @@ export default function MyProfile() {
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">ID Proof Number</label>
               {editing ? (
-                <input className={inputCls} value={form.idProofNumber} onChange={field('idProofNumber')} placeholder="ID number" />
+                <input className={inputCls} maxLength={30} value={form.idProofNumber} onChange={field('idProofNumber')} placeholder="ID number" />
               ) : (
                 <p className="text-sm text-gray-800 font-medium py-2.5">{form.idProofNumber || '—'}</p>
               )}
@@ -405,7 +432,7 @@ export default function MyProfile() {
                 <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-brand-200 text-brand-600 text-sm font-semibold cursor-pointer hover:bg-brand-50 transition-colors">
                   <FileText size={14} /> {profile?.idProofUrl ? 'Replace Document' : 'Upload Document'}
                   <input type="file" accept="image/*,application/pdf" className="hidden"
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) idMutation.mutate(f) }} />
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f && checkFile(f, ['image/', 'application/pdf'])) idMutation.mutate(f) }} />
                 </label>
                 {profile?.idProofUrl
                   ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600"><CheckCircle2 size={13} /> Uploaded</span>
@@ -421,11 +448,11 @@ export default function MyProfile() {
           <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Contact Name</label>
-              <input className={inputCls} value={emForm.name} onChange={(e) => setEmForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Suresh Kumar" />
+              <input className={inputCls} maxLength={150} value={emForm.name} onChange={(e) => setEmForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Suresh Kumar" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Relationship</label>
-              <input className={inputCls} value={emForm.relationship} onChange={(e) => setEmForm((f) => ({ ...f, relationship: e.target.value }))} placeholder="e.g. Father" />
+              <input className={inputCls} maxLength={50} value={emForm.relationship} onChange={(e) => setEmForm((f) => ({ ...f, relationship: e.target.value }))} placeholder="e.g. Father" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Mobile</label>
@@ -438,7 +465,7 @@ export default function MyProfile() {
                 onChange={(e) => setEmForm((f) => ({ ...f, altMobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))} placeholder="Alternate number" />
             </div>
             <div className="sm:col-span-2 flex justify-end">
-              <button type="button" onClick={() => emMutation.mutate()} disabled={emMutation.isPending || !emForm.name || !emForm.relationship || emForm.mobile.length !== 10}
+              <button type="button" onClick={() => emMutation.mutate()} disabled={emMutation.isPending || !emForm.name.trim() || !emForm.relationship.trim() || emForm.mobile.length !== 10 || (emForm.altMobile.length > 0 && emForm.altMobile.length !== 10)}
                 className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-xl brand-gradient hover:opacity-90 transition-opacity disabled:opacity-50">
                 <Save size={14} /> {emMutation.isPending ? 'Saving…' : 'Save Emergency Contact'}
               </button>
@@ -446,11 +473,12 @@ export default function MyProfile() {
           </div>
         </div>
 
+        {editing && formErr && <p className="text-sm text-red-600 font-medium bg-red-50 px-4 py-3 rounded-xl">{formErr}</p>}
         {editing && (
           <div className="flex justify-end gap-3">
             <button
               type="button"
-              onClick={() => setEditing(false)}
+              onClick={cancelEdit}
               className="px-5 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
             >
               Cancel

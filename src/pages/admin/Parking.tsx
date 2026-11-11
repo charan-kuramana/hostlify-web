@@ -4,8 +4,9 @@ import { Car, X, Bike } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import PageHeader from '../../components/ui/PageHeader'
 import StatCard from '../../components/ui/StatCard'
-import { getHostelParking, updateParkingSlot } from '../../api/staff'
+import { getHostelParking, updateParkingSlot, removeParking } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
+import { useToastStore } from '../../store/toastStore'
 
 const AVATAR_COLORS = [
   'bg-brand-500', 'bg-emerald-500', 'bg-purple-500',
@@ -35,6 +36,7 @@ function VehicleTypeChip({ type }: { type: string }) {
 export default function Parking() {
   const { activeHostelId } = useAuthStore()
   const queryClient = useQueryClient()
+  const { show } = useToastStore()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [newSlot, setNewSlot] = useState('')
 
@@ -51,11 +53,30 @@ export default function Parking() {
       queryClient.invalidateQueries({ queryKey: ['parking', activeHostelId] })
       setEditingId(null)
       setNewSlot('')
+      show('success', 'Slot updated')
     },
+    onError: (e: any) => show('error', 'Could not update slot', e?.response?.data?.message ?? 'Please try again.'),
   })
 
-  const occupied = vehicles.filter((v: any) => v.status === 'ACTIVE').length
+  const removeMut = useMutation({
+    mutationFn: (recordId: number) => removeParking(recordId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['parking', activeHostelId] })
+      show('success', 'Vehicle removed', 'The parking registration has been removed.')
+    },
+    onError: (e: any) => show('error', 'Could not remove vehicle', e?.response?.data?.message ?? 'Please try again.'),
+  })
+
+  function saveSlot(v: any) {
+    const slot = newSlot.trim().toUpperCase()
+    const clash = (vehicles as any[]).find((o) => o.id !== v.id && (o.slotNumber ?? '').toUpperCase() === slot)
+    if (clash) { show('error', 'Slot already taken', `${slot} is assigned to ${clash.vehicleNumber}.`); return }
+    updateMut.mutate({ recordId: v.id, slotNumber: slot })
+  }
+
+  // The API only returns ACTIVE registrations
   const totalSlots = vehicles.length
+  const occupied = vehicles.filter((v: any) => v.slotNumber).length
   const available = Math.max(0, totalSlots - occupied)
 
   if (isLoading) return (
@@ -81,16 +102,16 @@ export default function Parking() {
           iconBg="bg-brand-50"
         />
         <StatCard
-          label="Active"
+          label="Slot Assigned"
           value={occupied}
-          sub="Active vehicles"
+          sub="Vehicles with a parking slot"
           icon={<Car size={20} className="text-emerald-600" />}
           iconBg="bg-emerald-50"
         />
         <StatCard
-          label="Inactive"
+          label="Awaiting Slot"
           value={available}
-          sub="Inactive slots"
+          sub="Registered without a slot"
           icon={<Car size={20} className="text-amber-600" />}
           iconBg="bg-amber-50"
         />
@@ -125,7 +146,7 @@ export default function Parking() {
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
-                    <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider">
+                    <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider whitespace-nowrap">
                       {v.vehicleNumber}
                     </span>
                   </td>
@@ -142,8 +163,8 @@ export default function Parking() {
                           placeholder="P-XX"
                         />
                         <button
-                          onClick={() => updateMut.mutate({ recordId: v.id, slotNumber: newSlot })}
-                          disabled={updateMut.isPending || !newSlot}
+                          onClick={() => saveSlot(v)}
+                          disabled={updateMut.isPending || !newSlot.trim()}
                           className="text-xs font-semibold text-emerald-600 border border-emerald-200 bg-emerald-50 hover:bg-brand-600 hover:text-white px-2 py-1 rounded-lg transition-all disabled:opacity-60"
                         >
                           Save
@@ -165,12 +186,21 @@ export default function Parking() {
                     <Badge status={v.status} />
                   </td>
                   <td className="px-5 py-3.5">
-                    <button
-                      onClick={() => { setEditingId(v.id); setNewSlot(v.slotNumber ?? v.slot ?? '') }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold hover:bg-gray-50 transition-colors"
-                    >
-                      Edit Slot
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setEditingId(v.id); setNewSlot(v.slotNumber ?? v.slot ?? '') }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold hover:bg-gray-50 transition-colors"
+                      >
+                        {v.slotNumber ? 'Edit Slot' : 'Assign Slot'}
+                      </button>
+                      <button
+                        onClick={() => { if (window.confirm(`Remove ${v.vehicleNumber} from parking?`)) removeMut.mutate(v.id) }}
+                        disabled={removeMut.isPending}
+                        className="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs font-semibold hover:bg-red-50 transition-colors disabled:opacity-60"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -7,8 +7,12 @@ import { getExpenseSummary, getPaymentRecords } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
 
 function formatINR(amount: number): string {
-  if (Math.abs(amount) >= 100000) return `₹${(amount / 100000).toFixed(2)}L`
-  return `₹${Number(amount ?? 0).toLocaleString('en-IN')}`
+  // Sign before the symbol: "-₹1.22L", not "₹-1.22L"
+  const n = Number(amount ?? 0)
+  const sign = n < 0 ? '-' : ''
+  const abs = Math.abs(n)
+  if (abs >= 100000) return `${sign}₹${(abs / 100000).toFixed(2)}L`
+  return `${sign}₹${abs.toLocaleString('en-IN')}`
 }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 

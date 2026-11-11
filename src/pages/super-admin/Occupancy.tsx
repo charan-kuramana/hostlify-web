@@ -28,39 +28,39 @@ export default function Occupancy() {
       </div>
     )
 
+  // API: { totalBeds, occupiedBeds, vacantBeds, occupancyRate, hostels: [{ hostelId, hostelName, ownerName, city, totalBeds, occupiedBeds, occupancyRate }] }
+  const rows: unknown[] = Array.isArray(data?.hostels) ? data.hostels : Array.isArray(data) ? data : []
   const occupancyList: Array<{
+    id: number | string
     hostel: string
     owner: string
     city: string
     occupied: number
     capacity: number
     rate: number
-  }> = (data?.hostels ?? data ?? []).map((h: {
-    hostelName?: string
-    name?: string
-    ownerName?: string
-    owner?: string
-    city?: string
-    occupiedBeds?: number
-    occupied?: number
-    totalBeds?: number
-    capacity?: number
-    occupancyRate?: number
-    rate?: number
-  }) => ({
-    hostel: h.hostelName ?? h.name ?? '',
-    owner: h.ownerName ?? h.owner ?? '',
-    city: h.city ?? '',
-    occupied: h.occupiedBeds ?? h.occupied ?? 0,
-    capacity: h.totalBeds ?? h.capacity ?? 0,
-    rate: h.occupancyRate ?? h.rate ?? (h.totalBeds ?? h.capacity ?? 0) > 0
-      ? Math.round(((h.occupiedBeds ?? h.occupied ?? 0) / (h.totalBeds ?? h.capacity ?? 1)) * 100 * 10) / 10
-      : 0,
-  }))
+  }> = rows.map((raw, idx) => {
+    const h = raw as {
+      hostelId?: number; id?: number; hostelName?: string; name?: string; ownerName?: string; owner?: string; city?: string
+      occupiedBeds?: number; occupied?: number; totalBeds?: number; capacity?: number
+    }
+    const occupied = Number(h.occupiedBeds ?? h.occupied ?? 0)
+    const capacity = Number(h.totalBeds ?? h.capacity ?? 0)
+    return {
+      id: h.hostelId ?? h.id ?? idx,
+      hostel: h.hostelName ?? h.name ?? '—',
+      owner: h.ownerName ?? h.owner ?? '—',
+      city: h.city ?? '—',
+      occupied,
+      capacity,
+      rate: capacity > 0 ? Math.round((occupied / capacity) * 1000) / 10 : 0,
+    }
+  })
 
-  const totalBeds = occupancyList.reduce((s, h) => s + h.capacity, 0)
-  const totalOccupied = occupancyList.reduce((s, h) => s + h.occupied, 0)
-  const avgRate = totalBeds > 0 ? Math.round((totalOccupied / totalBeds) * 100 * 10) / 10 : 0
+  // Platform totals: prefer the API's own totals, fall back to summing the rows
+  const totalBeds: number = Number(data?.totalBeds ?? occupancyList.reduce((s, h) => s + h.capacity, 0))
+  const totalOccupied: number = Number(data?.occupiedBeds ?? occupancyList.reduce((s, h) => s + h.occupied, 0))
+  const avgRate = totalBeds > 0 ? Math.round((totalOccupied / totalBeds) * 1000) / 10 : 0
+  const hostelCount = occupancyList.length
 
   return (
     <div className="space-y-6">
@@ -76,7 +76,7 @@ export default function Occupancy() {
         <p className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.6)' }}>Super Admin</p>
         <h1 className="text-2xl font-bold mt-0.5 tracking-tight">Occupancy</h1>
         <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.5)' }}>
-          {totalOccupied} occupied of {totalBeds} total beds · {occupancyList.length} hostels
+          {totalOccupied} occupied of {totalBeds} total beds{hostelCount > 0 ? ` · ${hostelCount} hostels` : ''}
         </p>
       </div>
 
@@ -84,7 +84,7 @@ export default function Occupancy() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           label="Total Hostels"
-          value={occupancyList.length}
+          value={hostelCount > 0 ? hostelCount : '—'}
           sub="Across the platform"
           icon={<MapPin size={20} className="text-violet-600" />}
           iconBg="bg-violet-50"
@@ -109,7 +109,7 @@ export default function Occupancy() {
       {/* Occupancy Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {occupancyList.map((h) => (
-          <div key={h.hostel} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-all duration-200">
+          <div key={h.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start justify-between mb-3">
               <div>
                 <h3 className="font-bold text-gray-900 text-sm leading-tight">{h.hostel}</h3>
@@ -157,7 +157,7 @@ export default function Occupancy() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {occupancyList.map((h) => (
-                <tr key={h.hostel} className="hover:bg-gray-50/70 transition-colors">
+                <tr key={h.id} className="hover:bg-gray-50/70 transition-colors">
                   <td className="px-5 py-3.5 font-semibold text-gray-800">{h.hostel}</td>
                   <td className="px-5 py-3.5 text-gray-600">{h.owner}</td>
                   <td className="px-5 py-3.5 text-gray-500">{h.city}</td>
@@ -171,6 +171,11 @@ export default function Occupancy() {
                   </td>
                 </tr>
               ))}
+              {occupancyList.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-10 text-center text-sm text-gray-400">No per-hostel occupancy data available</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

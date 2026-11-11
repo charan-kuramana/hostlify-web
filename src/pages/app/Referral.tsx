@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, Check, Users, Gift, ChevronRight, Star } from 'lucide-react'
+import { Copy, Check, Users, Gift, Star } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import StatCard from '../../components/ui/StatCard'
 import { getMyReferralCode, getMyReferrals } from '../../api/hosteller'
@@ -38,9 +38,11 @@ export default function Referral() {
   function copyCode() {
     const code = referralData?.code
     if (!code) return
-    navigator.clipboard.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    // clipboard API is unavailable on non-secure origins / some browsers — don't claim success then
+    Promise.resolve()
+      .then(() => navigator.clipboard.writeText(code))
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+      .catch(() => window.prompt('Copy your referral code:', code))
   }
 
   const referralsList = referrals ?? []
@@ -102,15 +104,15 @@ export default function Referral() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <StatCard
           label="Total Referred"
-          value={referralData?.referredCount ?? referralsList.length}
+          value={referralData?.totalReferrals ?? referralData?.referredCount ?? referralsList.length}
           sub="Friends who joined via your code"
           icon={<Users size={20} className="text-brand-600" />}
           iconBg="bg-brand-50"
         />
         <StatCard
           label="Your Reward"
-          value={referralData?.reward ?? '—'}
-          sub="Applied automatically on next due"
+          value={'₹' + Number(referralData?.totalDiscountEarned ?? referralData?.reward ?? 0).toLocaleString('en-IN')}
+          sub="Earned from completed referrals"
           icon={<Gift size={20} className="text-emerald-600" />}
           iconBg="bg-emerald-50"
         />
@@ -169,23 +171,22 @@ export default function Referral() {
                   <div
                     className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0 ${AVATAR_COLORS[i % AVATAR_COLORS.length]}`}
                   >
-                    {getInitials(r.name ?? 'U')}
+                    {getInitials(r.referredName ?? r.name ?? 'Friend')}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm">{r.name ?? '—'}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Joined {fmtDate(r.joinDate ?? r.createdAt)}</p>
+                    <p className="font-semibold text-gray-800 text-sm">{r.referredName ?? r.name ?? `Friend #${r.referredId}`}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Signed up {fmtDate(r.joinDate ?? r.createdAt)}</p>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span
                       className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                        r.status === 'Joined' || r.status === 'JOINED'
+                        ['Joined', 'JOINED', 'COMPLETED'].includes(r.status)
                           ? 'bg-emerald-50 text-emerald-700'
                           : 'bg-amber-50 text-amber-700'
                       }`}
                     >
-                      {r.status}
+                      {r.status === 'COMPLETED' ? 'Joined' : r.status === 'PENDING' ? 'Pending' : r.status}
                     </span>
-                    <ChevronRight size={14} className="text-gray-300" />
                   </div>
                 </div>
               ))}

@@ -66,16 +66,18 @@ export default function HostelSetup() {
     enabled: !!activeHostelId && tab === 'pricing',
   })
 
-  const [tiers, setTiers] = useState<{ tierName: string; monthlyRent: string; description: string }[]>([])
+  // API fields: roomType, baseRent, depositMonths, lateFee (one tier per room type)
+  const [tiers, setTiers] = useState<{ roomType: string; baseRent: string; depositMonths: string; lateFee: string }[]>([])
 
   useEffect(() => {
     if (pricingData) {
       setTiers(
         Array.isArray(pricingData)
           ? pricingData.map((t: any) => ({
-              tierName: t.tierName ?? '',
-              monthlyRent: String(t.monthlyRent ?? ''),
-              description: t.description ?? '',
+              roomType: t.roomType ?? t.tierName ?? '',
+              baseRent: String(t.baseRent ?? t.monthlyRent ?? ''),
+              depositMonths: String(t.depositMonths ?? 1),
+              lateFee: String(t.lateFee ?? 0),
             }))
           : [],
       )
@@ -84,13 +86,27 @@ export default function HostelSetup() {
 
   const savePricingMut = useMutation({
     mutationFn: () =>
-      updateHostelPricing(activeHostelId!, tiers.map((t) => ({ ...t, monthlyRent: Number(t.monthlyRent) }))),
+      updateHostelPricing(activeHostelId!, tiers.map((t) => ({
+        roomType: t.roomType,
+        baseRent: Number(t.baseRent),
+        depositMonths: Number(t.depositMonths || 0),
+        lateFee: Number(t.lateFee || 0),
+      }))),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['hostel-pricing', activeHostelId] })
       show('success', 'Pricing updated')
     },
     onError: () => show('error', 'Failed to update pricing'),
   })
+
+  function savePricing() {
+    const types = tiers.map((t) => t.roomType)
+    if (tiers.some((t) => !t.roomType)) { show('error', 'Room type required', 'Pick a room type for every tier.'); return }
+    if (new Set(types).size !== types.length) { show('error', 'Duplicate room type', 'Each room type can only have one tier.'); return }
+    if (tiers.some((t) => !(Number(t.baseRent) > 0))) { show('error', 'Invalid rent', 'Monthly rent must be greater than 0.'); return }
+    if (tiers.some((t) => Number(t.depositMonths) < 0 || Number(t.lateFee) < 0)) { show('error', 'Invalid values', 'Deposit months and late fee cannot be negative.'); return }
+    savePricingMut.mutate()
+  }
 
   // ── Booking Settings ──────────────────────────────────────────────────────────
   const { data: bookingSettingsData, isLoading: bookingSettingsLoading } = useQuery({
@@ -116,12 +132,17 @@ export default function HostelSetup() {
   }, [bookingSettingsData])
 
   const saveBookingMut = useMutation({
-    mutationFn: () => updateBookingSettings(activeHostelId!, bkSettings),
+    mutationFn: () => {
+      if (!Number.isInteger(bkSettings.autoExpireDays) || bkSettings.autoExpireDays < 1 || bkSettings.autoExpireDays > 30) {
+        return Promise.reject(new Error('Auto-expire must be between 1 and 30 days.'))
+      }
+      return updateBookingSettings(activeHostelId!, bkSettings)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['booking-settings', activeHostelId] })
       show('success', 'Booking settings saved')
     },
-    onError: () => show('error', 'Failed to save booking settings'),
+    onError: (e: any) => show('error', 'Failed to save booking settings', e?.response?.data?.message ?? e?.message),
   })
 
   return (
@@ -208,37 +229,43 @@ export default function HostelSetup() {
               )}
               <div className="space-y-4 mb-5">
                 {tiers.map((tier, i) => (
-                  <div key={i} className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 border border-gray-100 rounded-xl">
+                  <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 border border-gray-100 rounded-xl">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Tier Name</label>
-                      <input className={inputCls} value={tier.tierName}
-                        onChange={(e) => { const u = [...tiers]; u[i] = { ...u[i], tierName: e.target.value }; setTiers(u) }}
-                        placeholder="e.g. Standard" />
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Room Type</label>
+                      <select className={inputCls} value={tier.roomType}
+                        onChange={(e) => { const u = [...tiers]; u[i] = { ...u[i], roomType: e.target.value }; setTiers(u) }}>
+                        <option value="">Select…</option>
+                        {['SINGLE', 'DOUBLE', 'TRIPLE', 'DORMITORY'].map((rt) => <option key={rt} value={rt}>{rt.charAt(0) + rt.slice(1).toLowerCase()}</option>)}
+                      </select>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Monthly Rent (₹)</label>
-                      <input type="number" className={inputCls} value={tier.monthlyRent}
-                        onChange={(e) => { const u = [...tiers]; u[i] = { ...u[i], monthlyRent: e.target.value }; setTiers(u) }}
+                      <input type="number" min={0} className={inputCls} value={tier.baseRent}
+                        onChange={(e) => { const u = [...tiers]; u[i] = { ...u[i], baseRent: e.target.value }; setTiers(u) }}
                         placeholder="0" />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Description</label>
-                      <input className={inputCls} value={tier.description}
-                        onChange={(e) => { const u = [...tiers]; u[i] = { ...u[i], description: e.target.value }; setTiers(u) }}
-                        placeholder="e.g. AC room, attached bathroom" />
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Deposit (months)</label>
+                      <input type="number" min={0} className={inputCls} value={tier.depositMonths}
+                        onChange={(e) => { const u = [...tiers]; u[i] = { ...u[i], depositMonths: e.target.value }; setTiers(u) }} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Late Fee (₹)</label>
+                      <input type="number" min={0} className={inputCls} value={tier.lateFee}
+                        onChange={(e) => { const u = [...tiers]; u[i] = { ...u[i], lateFee: e.target.value }; setTiers(u) }} />
                     </div>
                   </div>
                 ))}
               </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setTiers((t) => [...t, { tierName: '', monthlyRent: '', description: '' }])}
+                  onClick={() => setTiers((t) => [...t, { roomType: '', baseRent: '', depositMonths: '1', lateFee: '0' }])}
                   className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
                 >
                   + Add Tier
                 </button>
                 <button
-                  onClick={() => savePricingMut.mutate()}
+                  onClick={savePricing}
                   disabled={savePricingMut.isPending}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold shadow-sm hover:opacity-90 transition-opacity disabled:opacity-60"
                   style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}

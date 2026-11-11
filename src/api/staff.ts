@@ -4,9 +4,13 @@ import { apiClient } from './client'
 export const getStaffDashboard = (hostelId: number) =>
   Promise.all([
     apiClient.get(`/payment/dues/hostel/${hostelId}/pending`).then((r) => r.data.data),
-    apiClient.get(`/booking/pending?hostelId=${hostelId}`).then((r) => r.data.data),
+    apiClient.get(`/booking/requests?hostelId=${hostelId}`).then((r) => r.data.data),
     apiClient.get(`/hostellers/hostel/${hostelId}`).then((r) => r.data.data),
-  ]).then(([pendingDues, pendingAllocations, members]) => ({ pendingDues, pendingAllocations, members }))
+    apiClient.get(`/payment/records/hostel/${hostelId}`).then((r) => r.data.data),
+    apiClient.get(`/complaints/hostel/${hostelId}`).then((r) => r.data.data),
+  ]).then(([pendingDues, bookingRequests, members, payments, complaints]) => ({
+    pendingDues, bookingRequests, members, payments, complaints,
+  }))
 
 // ─── Hostel Structure ─────────────────────────────────────────────────────────
 export const getHostel = (hostelId: number) =>
@@ -24,6 +28,9 @@ export const getHostelStructure = (hostelId: number) =>
 
 export const createFloor = (hostelId: number, data: Record<string, unknown>) =>
   apiClient.post(`/hostels/${hostelId}/floors`, data).then((r) => r.data.data)
+
+export const renameFloor = (floorId: number, floorName: string) =>
+  apiClient.put(`/floors/${floorId}`, { floorName }).then((r) => r.data.data)
 
 export const getRooms = (floorId: number) =>
   apiClient.get(`/floors/${floorId}/rooms`).then((r) => r.data.data)
@@ -57,6 +64,15 @@ export const getMembers = (hostelId: number) =>
 
 export const getMemberById = (id: number) =>
   apiClient.get(`/hostellers/${id}`).then((r) => r.data.data)
+
+export const updateMember = (id: number, data: Record<string, unknown>) =>
+  apiClient.put(`/hostellers/${id}`, data).then((r) => r.data.data)
+
+export const getEmergencyContact = (id: number) =>
+  apiClient.get(`/hostellers/${id}/emergency-contact`).then((r) => r.data.data)
+
+export const saveEmergencyContact = (id: number, data: Record<string, unknown>) =>
+  apiClient.put(`/hostellers/${id}/emergency-contact`, data).then((r) => r.data.data)
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
 export const getPendingDues = (hostelId: number) =>
@@ -93,8 +109,8 @@ export const createMaintenance = (data: Record<string, unknown>) =>
 export const resolveMaintenance = (id: number) =>
   apiClient.put(`/complaints/maintenance/${id}/resolve`).then((r) => r.data.data)
 
-export const updateMaintenanceStatus = (id: number, status: string) =>
-  apiClient.patch(`/complaints/maintenance/${id}/status`, { status }).then((r) => r.data.data)
+export const updateMaintenanceStatus = (id: number, status: string, actualCost?: number) =>
+  apiClient.patch(`/complaints/maintenance/${id}/status`, { status, actualCost }).then((r) => r.data.data)
 
 // ─── Expenses ────────────────────────────────────────────────────────────────
 export const getExpenses = (hostelId: number, month?: number, year?: number) => {
@@ -124,6 +140,9 @@ export const addEmployee = (data: Record<string, unknown>) =>
 export const updateEmployee = (id: number, data: Record<string, unknown>) =>
   apiClient.put(`/employee/${id}`, data).then((r) => r.data.data)
 
+export const removeEmployee = (id: number) =>
+  apiClient.delete(`/employee/${id}`).then((r) => r.data.data)
+
 export const recordSalary = (employeeId: number, data: Record<string, unknown>) =>
   apiClient.post(`/employee/${employeeId}/salary`, data).then((r) => r.data.data)
 
@@ -138,6 +157,15 @@ export const getLeaveOccupancy = (hostelId: number, from: string, to: string) =>
 // ─── Leave ────────────────────────────────────────────────────────────────────
 export const getPendingLeaves = () =>
   apiClient.get('/leaves/pending').then((r) => r.data.data)
+
+// All leave requests (pending + reviewed) for residents of one hostel.
+// Falls back to the legacy pending-only list on an API build without /leaves/hostel/{id}.
+export const getHostelLeaves = (hostelId: number) =>
+  apiClient.get(`/leaves/hostel/${hostelId}`).then((r) => r.data.data)
+    .catch((e) => {
+      if (e?.response?.status === 404 || e?.response?.status === 500) return getPendingLeaves()
+      throw e
+    })
 
 export const reviewLeave = (id: number, data: { status: string; reviewedBy?: string }) =>
   apiClient.put(`/leaves/${id}/review`, data).then((r) => r.data.data)
@@ -175,7 +203,10 @@ export const getHostelParking = (hostelId: number) =>
   apiClient.get(`/parking/hostel/${hostelId}`).then((r) => r.data.data)
 
 export const updateParkingSlot = (recordId: number, slotNumber: string) =>
-  apiClient.patch(`/parking/${recordId}/slot?slotNumber=${slotNumber}`).then((r) => r.data.data)
+  apiClient.patch(`/parking/${recordId}/slot?slotNumber=${encodeURIComponent(slotNumber)}`).then((r) => r.data.data)
+
+export const removeParking = (recordId: number) =>
+  apiClient.delete(`/parking/${recordId}`).then((r) => r.data.data)
 
 // ─── Cleaning ─────────────────────────────────────────────────────────────────
 export const getHostelCleaning = (hostelId: number, status?: string) => {
@@ -241,6 +272,9 @@ export const createStaffMember = (data: Record<string, unknown>) =>
 
 export const updateStaffMember = (assignmentId: number, data: Record<string, unknown>) =>
   apiClient.put(`/staff/${assignmentId}`, data).then((r) => r.data.data)
+
+export const changeStaffPassword = (currentPassword: string, newPassword: string) =>
+  apiClient.put('/staff/me/password', { currentPassword, newPassword }).then((r) => r.data.data)
 
 export const deactivateStaffMember = (assignmentId: number) =>
   apiClient.delete(`/staff/${assignmentId}`).then((r) => r.data.data)

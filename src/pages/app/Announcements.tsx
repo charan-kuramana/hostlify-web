@@ -4,6 +4,7 @@ import { Megaphone } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import { useAuthStore } from '../../store/authStore'
 import { getAnnouncements } from '../../api/hosteller'
+import NoStay from './NoStay'
 
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -36,6 +37,8 @@ export default function Announcements() {
   const filtered = activeCategory === 'All'
     ? announcementsList
     : announcementsList.filter((a: any) => a.category === activeCategory)
+
+  if (!hostelId) return <NoStay title="Announcements" subtitle="Stay updated with the latest from management" />
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">

@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Coffee, Sun, Moon, UtensilsCrossed } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import { useAuthStore } from '../../store/authStore'
-import { getCurrentMenu, getMenuItems } from '../../api/hosteller'
+import { getCurrentMenu, getMenuItems, retryUnless404, isNotFound } from '../../api/hosteller'
+import NoStay from './NoStay'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -15,6 +16,7 @@ export default function Menu() {
     queryKey: ['current-menu', hostelId],
     queryFn: () => getCurrentMenu(hostelId!),
     enabled: !!hostelId,
+    retry: retryUnless404,
   })
 
   const { data: items, isLoading: itemsLoading } = useQuery({
@@ -25,13 +27,15 @@ export default function Menu() {
 
   const isLoading = menuLoading || itemsLoading
 
+  if (!hostelId) return <NoStay title="Weekly Menu" subtitle="Hostel mess schedule for this week" />
+
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
       <div className="w-8 h-8 rounded-full border-4 border-brand-200 border-t-brand-600 animate-spin" />
     </div>
   )
 
-  if (menuError) return <div className="text-center py-20 text-gray-400">Failed to load data</div>
+  if (menuError && !isNotFound(menuError)) return <div className="text-center py-20 text-gray-400">Failed to load data</div>
 
   if (!menu) return (
     <div className="space-y-6">
@@ -46,11 +50,16 @@ export default function Menu() {
     </div>
   )
 
+  // dayOfWeek may be stored as "Monday" or "MONDAY"
+  const find = (day: string, meal: string) =>
+    (items as any[] | undefined)?.find((i: any) => i.dayOfWeek?.toLowerCase() === day.toLowerCase() && i.mealType?.toUpperCase() === meal)
+  const timing = (meal: string, fallback: string) =>
+    (items as any[] | undefined)?.find((i: any) => i.mealType?.toUpperCase() === meal && i.timing)?.timing ?? fallback
   const menuRows = DAYS.map((day) => ({
     day,
-    breakfast: items?.find((i: any) => i.dayOfWeek === day && i.mealType?.toUpperCase() === 'BREAKFAST')?.items ?? '—',
-    lunch: items?.find((i: any) => i.dayOfWeek === day && i.mealType?.toUpperCase() === 'LUNCH')?.items ?? '—',
-    dinner: items?.find((i: any) => i.dayOfWeek === day && i.mealType?.toUpperCase() === 'DINNER')?.items ?? '—',
+    breakfast: find(day, 'BREAKFAST')?.items ?? '—',
+    lunch: find(day, 'LUNCH')?.items ?? '—',
+    dinner: find(day, 'DINNER')?.items ?? '—',
   }))
 
   const todayRow = menuRows.find((r) => r.day === TODAY)
@@ -79,9 +88,9 @@ export default function Menu() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: 'Breakfast', value: todayRow.breakfast, icon: Coffee, time: '7:30 – 9:30 AM' },
-              { label: 'Lunch',     value: todayRow.lunch,     icon: Sun,    time: '12:30 – 2:30 PM' },
-              { label: 'Dinner',    value: todayRow.dinner,    icon: Moon,   time: '7:00 – 9:00 PM' },
+              { label: 'Breakfast', value: todayRow.breakfast, icon: Coffee, time: timing('BREAKFAST', '7:30 – 9:30 AM') },
+              { label: 'Lunch',     value: todayRow.lunch,     icon: Sun,    time: timing('LUNCH', '12:30 – 2:30 PM') },
+              { label: 'Dinner',    value: todayRow.dinner,    icon: Moon,   time: timing('DINNER', '7:30 – 9:30 PM') },
             ].map((meal) => (
               <div
                 key={meal.label}

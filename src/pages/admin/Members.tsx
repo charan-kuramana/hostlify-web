@@ -108,7 +108,7 @@ export default function Members() {
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
-                    <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider">
+                    <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider whitespace-nowrap">
                       {m.roomNumber ?? '—'}
                     </span>
                   </td>

@@ -1,13 +1,15 @@
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import axios from 'axios'
 import LoginForm from '../../components/auth/LoginForm'
+import { redirectAfterLogin } from '../../components/auth/redirectAfterLogin'
 import { loginHosteller } from '../../api/auth'
 import { useAuthStore } from '../../store/authStore'
 import { STRINGS } from '../../constants/strings'
 
 export default function HostellerLogin() {
   const navigate = useNavigate()
+  const location = useLocation()
   const setAuth = useAuthStore((s) => s.setAuth)
 
   const { mutate, isPending, error } = useMutation({
@@ -16,7 +18,8 @@ export default function HostellerLogin() {
     onSuccess: (response) => {
       const { accessToken, refreshToken, role, subRole, email, hostelId, hostellerProfileId, bookingId } = response.data
       setAuth({ accessToken, refreshToken, role, subRole, email, hostelId, hostellerProfileId, bookingId })
-      navigate('/app/dashboard')
+      // No hostel yet (newly registered) -> start at hostel discovery to request a bed
+      navigate(hostelId ? redirectAfterLogin(location.state, '/app', '/app/dashboard') : '/app/discover', { replace: true })
     },
   })
 

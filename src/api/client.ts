@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { useAuthStore } from '../store/authStore'
+import { useAuthStore, LOGIN_PATH } from '../store/authStore'
 import { useToastStore } from '../store/toastStore'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8090/api/v1'
@@ -40,12 +40,15 @@ apiClient.interceptors.response.use(
           localStorage.setItem('hostlify-access-token', accessToken)
           localStorage.setItem('hostlify-refresh-token', newRefreshToken)
 
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`
+          // The request interceptor attaches the new token from localStorage on retry
+          // (no global default header — it would outlive a later logout).
           return apiClient(originalRequest)
         }
       } catch (refreshError) {
+        // Session can't be renewed (expired/revoked/suspended): back to this portal's login
+        const role = useAuthStore.getState().role
         useAuthStore.getState().clearAuth()
-        window.location.href = '/auth/login'
+        window.location.href = (role && LOGIN_PATH[role]) || '/auth/login'
         return Promise.reject(refreshError)
       }
     }

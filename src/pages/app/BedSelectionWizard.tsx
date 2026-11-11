@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, BedDouble, Layers, DoorOpen, CheckCircle2, CalendarDays, AlignLeft, Lock, ArrowRight } from 'lucide-react'
 import {
   getHostelDetail,
   getFloorsWithAvailability,
   getRoomsWithAvailability,
   submitBookingRequest,
+  getMyBookingRequest,
+  retryUnless404,
 } from '../../api/hosteller'
 
 const STEPS = ['Floor', 'Pick a Bed', 'Confirm'] as const
@@ -157,7 +159,7 @@ function SeatMapStep({ floorId, selectedBed, onSelect }: { floorId: number; sele
             <div key={room.id ?? room.roomId} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider">{room.roomName ?? room.roomNumber}</span>
+                  <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider whitespace-nowrap">{room.roomName ?? room.roomNumber}</span>
                   {room.roomType && <span className="text-xs font-medium text-gray-500 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full">{room.roomType}</span>}
                 </div>
                 <div className="flex items-center gap-3">
@@ -182,14 +184,27 @@ function SeatMapStep({ floorId, selectedBed, onSelect }: { floorId: number; sele
 function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, selectedBed, onSuccess }: {
   hostelId: number; hostelName: string; selectedFloor: any; selectedRoom: any; selectedBed: any; onSuccess: () => void
 }) {
-  const today = new Date().toISOString().split('T')[0]
+  const today = new Date().toLocaleDateString('en-CA') // local YYYY-MM-DD (toISOString is UTC → "yesterday" before 5:30am IST)
   const [checkInDate, setCheckInDate] = useState(today)
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  // A new request replaces any pending one (the old bed is released) — warn before that happens.
+  const { data: myRequest } = useQuery({ queryKey: ['my-booking-request'], queryFn: getMyBookingRequest, retry: retryUnless404 })
+  const replacesPending = myRequest?.status === 'PENDING_APPROVAL' || myRequest?.status === 'REASSIGNED'
+
+  const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: () => submitBookingRequest({ hostelId, bedId: selectedBed.id, checkInDate, preferenceNotes: notes || undefined }),
-    onSuccess,
+    mutationFn: () => {
+      if (!checkInDate || checkInDate < today) return Promise.reject({ response: { data: { message: 'Check-in date cannot be in the past.' } } })
+      return submitBookingRequest({ hostelId, bedId: selectedBed.id, checkInDate, preferenceNotes: notes.trim() || undefined })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-booking-request'] })
+      queryClient.invalidateQueries({ queryKey: ['floors-availability'] })
+      queryClient.invalidateQueries({ queryKey: ['rooms-availability'] })
+      onSuccess()
+    },
     onError: (err: any) => setError(err?.response?.data?.message ?? 'Failed to submit booking request. Please try again.'),
   })
 
@@ -221,7 +236,7 @@ function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, select
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <label className="block text-sm font-semibold text-gray-700 mb-2"><span className="flex items-center gap-1.5"><AlignLeft size={14} /> Preference Notes <span className="font-normal text-gray-400">(optional)</span></span></label>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Any preferences or special requirements..."
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={1000} placeholder="Any preferences or special requirements..."
           className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400 resize-none" />
       </div>
 
@@ -230,11 +245,17 @@ function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, select
         <span>Submitting reserves this bed for you (shown as <span className="font-semibold text-amber-600">Allocated · Waiting</span> to others) until staff confirm your booking. You'll then be asked to pay.</span>
       </div>
 
+      {replacesPending && (
+        <p className="text-sm text-amber-800 font-medium bg-amber-50 border border-amber-200 px-4 py-3 rounded-xl">
+          You already have a pending booking request. Submitting this one will cancel it and release that bed.
+        </p>
+      )}
+
       {error && <p className="text-sm text-red-500 font-medium bg-red-50 px-4 py-3 rounded-xl">{error}</p>}
 
       <button onClick={() => mutation.mutate()} disabled={mutation.isPending}
         className="w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-60 brand-gradient">
-        {mutation.isPending ? 'Submitting...' : 'Submit Booking Request'}
+        {mutation.isPending ? 'Submitting...' : replacesPending ? 'Replace My Pending Request' : 'Submit Booking Request'}
       </button>
     </div>
   )

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Star, MessageSquare } from 'lucide-react'
+import { Star } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import { getReviews } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
@@ -60,7 +60,7 @@ export default function Reviews() {
     <div className="space-y-6">
       <PageHeader
         title="Member Reviews"
-        subtitle="Feedback from residents after checkout"
+        subtitle="Feedback from your residents"
         count={reviews.length}
       />
 
@@ -149,16 +149,6 @@ export default function Reviews() {
                   </div>
                   <StarDisplay rating={review.rating ?? 0} />
                   <p className="text-sm text-gray-600 mt-2.5 leading-relaxed">{review.reviewText ?? review.text}</p>
-                  <div className="flex items-center justify-between mt-3">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand-50 text-brand-600 text-xs font-semibold">
-                      <Star size={10} className="fill-brand-400 text-brand-400" />
-                      Reviewed after checkout
-                    </span>
-                    <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 transition-colors">
-                      <MessageSquare size={12} />
-                      Reply
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>
