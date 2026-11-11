@@ -1,7 +1,8 @@
 import { useState, Suspense } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Menu, X, LogOut, Bell } from 'lucide-react'
-import { useAuthStore } from '../store/authStore'
+import { useAuthStore, LOGIN_PATH } from '../store/authStore'
 import { STRINGS } from '../constants/strings'
 import type { ComponentType } from 'react'
 
@@ -49,7 +50,7 @@ export default function PortalLayout({ navItems, portalName, bottomNav, profileP
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  const { role, clearAuth } = useAuthStore()
+  const { role, logout: storeLogout } = useAuthStore()
   const path = location.pathname
 
   const leaves = allLeaves(navItems)
@@ -63,9 +64,16 @@ export default function PortalLayout({ navItems, portalName, bottomNav, profileP
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
+  const queryClient = useQueryClient()
+
   function logout() {
-    clearAuth()
-    navigate('/auth/login', { replace: true })
+    const loginPath = (role && LOGIN_PATH[role]) || '/auth/login'
+    // Clears the local session and revokes the refresh token server-side (best effort)
+    void storeLogout()
+    // Drop every cached query — most keys aren't user-scoped (e.g. ['current-due']),
+    // so the next account to sign in on this tab would briefly see this user's data.
+    queryClient.clear()
+    navigate(loginPath, { replace: true })
   }
 
   // ── Sidebar item renderers ────────────────────────────────────────────────

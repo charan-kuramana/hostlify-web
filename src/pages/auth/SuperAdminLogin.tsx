@@ -1,13 +1,15 @@
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import axios from 'axios'
 import LoginForm from '../../components/auth/LoginForm'
+import { redirectAfterLogin } from '../../components/auth/redirectAfterLogin'
 import { loginSuperAdmin } from '../../api/auth'
 import { useAuthStore } from '../../store/authStore'
 import { STRINGS } from '../../constants/strings'
 
 export default function SuperAdminLogin() {
   const navigate = useNavigate()
+  const location = useLocation()
   const setAuth = useAuthStore((s) => s.setAuth)
 
   const { mutate, isPending, error } = useMutation({
@@ -16,7 +18,7 @@ export default function SuperAdminLogin() {
     onSuccess: (response) => {
       const { accessToken, refreshToken, role, subRole, email } = response.data
       setAuth({ accessToken, refreshToken, role, subRole, email, hostelIds: [] })
-      navigate('/super-admin/dashboard')
+      navigate(redirectAfterLogin(location.state, '/super-admin', '/super-admin/dashboard'), { replace: true })
     },
   })
 

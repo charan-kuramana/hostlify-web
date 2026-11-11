@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { STRINGS } from '../../constants/strings'
 import Button from '../common/Button'
 import Input from '../common/Input'
@@ -21,12 +21,13 @@ export default function LoginForm({
   otherPortals,
   signupLink,
 }: LoginFormProps) {
+  const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
   function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault()
-    onSubmit(email, password)
+    onSubmit(email.trim(), password)
   }
 
   return (
@@ -67,6 +68,7 @@ export default function LoginForm({
               <label className="form-label mb-0">{STRINGS.auth.password}</label>
               <Link
                 to="/auth/forgot-password"
+                state={{ loginPath: location.pathname }}
                 className="text-xs text-brand-600 hover:underline font-normal"
               >
                 {STRINGS.auth.forgotPassword}

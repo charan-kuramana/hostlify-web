@@ -1,8 +1,15 @@
 import { useNavigate } from 'react-router-dom'
 import { Lock, ArrowLeft } from 'lucide-react'
+import { useAuthStore } from '../store/authStore'
 
 export default function Unauthorized() {
   const navigate = useNavigate()
+  const role = useAuthStore((s) => s.role)
+  // Opened directly (no history): go to the user's own portal, or to sign in
+  const home = role === 'SUPER_ADMIN' ? '/super-admin/dashboard'
+    : role === 'HOSTEL_STAFF' ? '/admin/dashboard'
+    : role === 'HOSTELLER' ? '/app/dashboard'
+    : '/auth/login'
 
   return (
     <div className="flex min-h-screen items-center justify-center" style={{ background: '#eef1f5' }}>
@@ -33,7 +40,7 @@ export default function Unauthorized() {
 
         {/* Button */}
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => (window.history.length > 1 ? navigate(-1) : navigate(home, { replace: true }))}
           className="mt-7 inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90 shadow-md"
           style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}
         >

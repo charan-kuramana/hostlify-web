@@ -2,7 +2,8 @@ import { useState, type FormEvent, type ChangeEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import axios from 'axios'
-import { registerHosteller } from '../../api/auth'
+import { registerHosteller, type RegisterPayload } from '../../api/auth'
+import { applyReferralCode } from '../../api/hosteller'
 import { STRINGS } from '../../constants/strings'
 import { Button, Input } from '../../components/common/index'
 
@@ -16,11 +17,25 @@ export default function HostellerSignup() {
         referralCode: '',
     })
     const [registered, setRegistered] = useState(false)
+    const [referralNote, setReferralNote] = useState<string | null>(null)
     const [mobileErr, setMobileErr] = useState<string | null>(null)
+    const [passwordErr, setPasswordErr] = useState<string | null>(null)
 
     const { mutate, isPending, error } = useMutation({
         mutationFn: registerHosteller,
-        onSuccess: () => {
+        onSuccess: async (res) => {
+            // The register endpoint ignores referralCode — record it with the new account's token.
+            const code = form.referralCode.trim()
+            const d = res?.data
+            if (code && d?.hostellerProfileId && d?.accessToken) {
+                try {
+                    await applyReferralCode(code.toUpperCase(), d.hostellerProfileId, d.accessToken)
+                    setReferralNote(`Referral code ${code.toUpperCase()} applied.`)
+                } catch (e) {
+                    const msg = axios.isAxiosError(e) ? e.response?.data?.message : null
+                    setReferralNote(`Your account was created, but the referral code couldn't be applied${msg ? ` (${msg})` : ''}.`)
+                }
+            }
             setRegistered(true)
         },
     })
@@ -28,12 +43,18 @@ export default function HostellerSignup() {
     function handleSubmit(e: FormEvent) {
         e.preventDefault()
         // Indian mobile: exactly 10 digits, starting 6-9
-        if (!/^[6-9]\d{9}$/.test(form.mobile)) {
-            setMobileErr('Enter a valid 10-digit mobile number (starting 6–9).')
-            return
-        }
-        setMobileErr(null)
-        mutate({ ...form, referralCode: form.referralCode.trim() || undefined } as any)
+        const badMobile = !/^[6-9]\d{9}$/.test(form.mobile)
+        const badPassword = form.password.length < 8
+        setMobileErr(badMobile ? 'Enter a valid 10-digit mobile number (starting 6–9).' : null)
+        setPasswordErr(badPassword ? 'Password must be at least 8 characters.' : null)
+        if (badMobile || badPassword) return
+        mutate({
+            ...form,
+            firstName: form.firstName.trim(),
+            lastName: form.lastName.trim(),
+            email: form.email.trim().toLowerCase(),
+            referralCode: form.referralCode.trim() || undefined,
+        } as RegisterPayload)
     }
 
     const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -45,12 +66,17 @@ export default function HostellerSignup() {
             if (mobileErr) setMobileErr(null)
             return
         }
+        if (id === 'password' && passwordErr) setPasswordErr(null)
         setForm(prev => ({ ...prev, [id]: value }))
     }
 
+    // Backend validation errors come as { message: 'Validation failed', data: { field: message } }
+    const fieldErrors = axios.isAxiosError(error) && error.response?.data?.data && typeof error.response.data.data === 'object'
+        ? Object.values(error.response.data.data as Record<string, string>).join(' ')
+        : ''
     const errorMsg = error
         ? axios.isAxiosError(error)
-            ? (error.response?.data?.message ?? 'Registration failed. Please try again.')
+            ? (fieldErrors || (error.response?.data?.message ?? 'Registration failed. Please try again.'))
             : (error as Error).message
         : null
 
@@ -61,8 +87,9 @@ export default function HostellerSignup() {
                     <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-5 text-2xl">✓</div>
                     <h2 className="text-xl font-bold text-gray-900 mb-2">Registration Successful!</h2>
                     <p className="text-[14px] text-gray-500 mb-6">
-                        Your account is pending admin approval. You will be notified once a bed is allocated and your account is activated.
+                        Log in to discover hostels and request a bed. Your account is activated once the hostel approves your booking.
                     </p>
+                    {referralNote && <p className="text-[13px] text-gray-600 bg-gray-50 rounded-xl px-4 py-2.5 mb-6">{referralNote}</p>}
                     <Link to="/auth/login" className="inline-block py-2.5 px-6 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors">
                         Back to Login
                     </Link>
@@ -164,6 +191,8 @@ export default function HostellerSignup() {
                             value={form.password}
                             onChange={handleChange}
                             placeholder={STRINGS.auth.passwordPlaceholder}
+                            error={passwordErr ?? undefined}
+                            hint={passwordErr ? undefined : 'At least 8 characters'}
                         />
 
                         <Input
