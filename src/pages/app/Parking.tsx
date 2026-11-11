@@ -233,7 +233,7 @@ export default function Parking() {
               {parkingList.map((r: any) => (
                 <tr key={r.id} className="hover:bg-gray-50/70 transition-colors">
                   <td className="px-5 py-3.5">
-                    <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider">
+                    <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider whitespace-nowrap">
                       {r.vehicleNumber}
                     </span>
                   </td>

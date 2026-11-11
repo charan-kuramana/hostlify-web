@@ -189,7 +189,7 @@ export default function Payments() {
                         <p className="font-semibold text-gray-800">{d.hostellerName ?? '—'}</p>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5"><span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider">{d.roomNumber ?? '—'}</span></td>
+                    <td className="px-5 py-3.5"><span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider whitespace-nowrap">{d.roomNumber ?? '—'}</span></td>
                     <td className="px-5 py-3.5 text-gray-500">{period(d)}</td>
                     <td className="px-5 py-3.5"><span className={`font-bold text-sm ${isOverdue(d) ? 'text-red-600' : d.status === 'PAID' ? 'text-emerald-600' : 'text-gray-900'}`}>{inr(d.amount)}</span>{Number(d.paidAmount ?? 0) > 0 && d.status !== 'PAID' && <p className="text-[11px] text-gray-400">{inr(d.paidAmount)} paid</p>}</td>
                     <td className="px-5 py-3.5 text-gray-500">{fmtDate(d.dueDate)}</td>

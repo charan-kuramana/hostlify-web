@@ -202,7 +202,7 @@ export default function MemberDetail() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900">{member.name}</h2>
-                <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider">
+                <span className="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg tracking-wider whitespace-nowrap">
                   {member.roomNumber ?? '—'}
                 </span>
                 <Badge status={member.status ?? 'ACTIVE'} />

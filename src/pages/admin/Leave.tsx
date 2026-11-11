@@ -117,6 +117,7 @@ export default function AdminLeave() {
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-gray-900">{l.hostellerName ?? l.applicantName}</p>
+                    {l.roomNumber && <span className="text-xs text-gray-500">Room {l.roomNumber}</span>}
                     {l.leaveType && <span className="text-xs text-gray-400">{l.leaveType}</span>}
                   </div>
                   <p className="text-sm text-gray-600 mt-1">
@@ -174,7 +175,7 @@ export default function AdminLeave() {
                 <tr key={l.id} className="hover:bg-gray-50">
                   <td className="px-5 py-3.5">
                     <p className="font-medium text-gray-800">{l.hostellerName ?? l.applicantName}</p>
-                    {l.leaveType && <p className="text-xs text-gray-400">{l.leaveType}</p>}
+                    <p className="text-xs text-gray-400">{[l.roomNumber && `Room ${l.roomNumber}`, l.leaveType].filter(Boolean).join(' · ')}</p>
                   </td>
                   <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap">{fmtDate(l.fromDate)} – {fmtDate(l.toDate)}</td>
                   <td className="px-5 py-3.5 text-gray-600 max-w-xs truncate">{l.reason}</td>
