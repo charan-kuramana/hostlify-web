@@ -6,6 +6,7 @@ import PageHeader from '../../components/ui/PageHeader'
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
 import { getMyComplaints, createComplaint } from '../../api/hosteller'
+import NoStay from './NoStay'
 
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -47,16 +48,19 @@ export default function Complaints() {
       setForm({ title: '', category: '', description: '' })
       show('success', 'Complaint submitted', 'Your complaint has been registered.')
     },
-    onError: () => {
-      show('error', 'Failed to submit', 'Could not submit your complaint. Please try again.')
+    onError: (e: any) => {
+      // 400/409 already toast the server's reason (api/client.ts)
+      if (![400, 409].includes(e?.response?.status)) show('error', 'Failed to submit', 'Could not submit your complaint. Please try again.')
     },
   })
 
   function validate() {
     const e: Partial<typeof form> = {}
     if (!form.title.trim())       e.title       = 'Title is required'
+    else if (form.title.trim().length > 200) e.title = 'Title must be 200 characters or less'
     if (!form.category)           e.category    = 'Category is required'
     if (!form.description.trim()) e.description = 'Description is required'
+    else if (form.description.trim().length > 2000) e.description = 'Description must be 2000 characters or less'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -65,9 +69,9 @@ export default function Complaints() {
     e.preventDefault()
     if (!validate()) return
     createMutation.mutate({
-      title: form.title,
+      title: form.title.trim(),
       category: form.category,
-      description: form.description,
+      description: form.description.trim(),
       hostellerProfileId,
       hostelId,
     })
@@ -78,6 +82,8 @@ export default function Complaints() {
   const filtered = activeCategory === 'All'
     ? complaintsList
     : complaintsList.filter((c: any) => c.category === activeCategory)
+
+  if (!hostelId) return <NoStay title="Complaints" subtitle="Raise and track your complaints" />
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
@@ -146,6 +152,7 @@ export default function Complaints() {
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Title</label>
                 <input
+                  maxLength={200}
                   value={form.title}
                   onChange={(e) => { setForm((f) => ({ ...f, title: e.target.value })); setErrors((er) => ({ ...er, title: undefined })) }}
                   className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 focus:bg-white transition-colors ${errors.title ? 'border-red-400' : 'border-gray-200'}`}
@@ -172,6 +179,7 @@ export default function Complaints() {
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Description</label>
               <textarea
                 rows={3}
+                maxLength={2000}
                 value={form.description}
                 onChange={(e) => { setForm((f) => ({ ...f, description: e.target.value })); setErrors((er) => ({ ...er, description: undefined })) }}
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none bg-gray-50 focus:bg-white transition-colors ${errors.description ? 'border-red-400' : 'border-gray-200'}`}

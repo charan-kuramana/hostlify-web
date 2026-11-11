@@ -13,7 +13,8 @@ import {
   ArrowRight,
 } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
-import { getMyBookingRequest, cancelBookingRequest, getMyBooking } from '../../api/hosteller'
+import { getMyBookingRequest, cancelBookingRequest, getMyBooking, getHostelDetail, getRoomsWithAvailability } from '../../api/hosteller'
+import { useToastStore } from '../../store/toastStore'
 
 function inr(n: any) {
   const v = Number(n ?? 0)
@@ -37,12 +38,13 @@ function StatusTimeline({ status }: { status: string }) {
   ]
 
   function getState(stepKey: string): StepState {
-    if (status === 'PENDING_APPROVAL') {
+    // REASSIGNED = staff moved the request to another bed; it still awaits final approval
+    if (status === 'PENDING_APPROVAL' || status === 'REASSIGNED') {
       if (stepKey === 'submitted') return 'done'
       if (stepKey === 'review') return 'active'
       return 'pending'
     }
-    if (status === 'APPROVED' || status === 'REASSIGNED') {
+    if (status === 'APPROVED') {
       return 'done'
     }
     if (status === 'REJECTED' || status === 'EXPIRED' || status === 'CANCELLED') {
@@ -89,6 +91,7 @@ function StatusTimeline({ status }: { status: string }) {
 export default function BookingStatus() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { show } = useToastStore()
 
   const { data: request, isLoading, isError, error } = useQuery({
     queryKey: ['my-booking-request'],
@@ -103,7 +106,25 @@ export default function BookingStatus() {
     mutationFn: (id: number) => cancelBookingRequest(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['my-booking-request'] })
+      queryClient.invalidateQueries({ queryKey: ['floors-availability'] })
+      queryClient.invalidateQueries({ queryKey: ['rooms-availability'] })
+      show('success', 'Request cancelled', 'Your bed has been released.')
     },
+    onError: (e: any) => {
+      if (![400, 409].includes(e?.response?.status)) show('error', 'Could not cancel', 'Please try again.')
+    },
+  })
+
+  // The request only carries ids — resolve hostel / room / bed names for display.
+  const { data: reqHostel } = useQuery({
+    queryKey: ['hostel-detail', request?.hostelId],
+    queryFn: () => getHostelDetail(request!.hostelId),
+    enabled: !!request?.hostelId,
+  })
+  const { data: reqRooms } = useQuery({
+    queryKey: ['rooms-availability', request?.floorId],
+    queryFn: () => getRoomsWithAvailability(request!.floorId),
+    enabled: !!request?.floorId,
   })
 
   // Once approved, load the confirmed booking to show rent / advance / next due.
@@ -152,6 +173,10 @@ export default function BookingStatus() {
   }
 
   const status: string = request.status ?? 'PENDING_APPROVAL'
+  const effectiveBedId = request.reassignedBedId ?? request.bedId
+  const allBeds = ((reqRooms ?? []) as any[]).flatMap((r: any) => (r.beds ?? []).map((b: any) => ({ ...b, roomName: r.roomName })))
+  const reqBed = allBeds.find((b: any) => b.id === effectiveBedId)
+  const reqRoomName = reqBed?.roomName ?? ((reqRooms ?? []) as any[]).find((r: any) => (r.id ?? r.roomId) === request.roomId)?.roomName
 
   const STATUS_BADGE_CLS: Record<string, string> = {
     PENDING_APPROVAL: 'bg-amber-100 text-amber-800 border-amber-200',
@@ -243,19 +268,28 @@ export default function BookingStatus() {
         )
       })()}
 
+      {status === 'REASSIGNED' && (
+        <div className="bg-blue-50 border border-blue-100 rounded-2xl px-5 py-4 flex items-start gap-3">
+          <RefreshCw size={18} className="text-blue-600 shrink-0 mt-0.5" />
+          <p className="text-sm font-semibold text-blue-800">
+            The hostel has moved your request to {reqBed ? `${reqRoomName} · ${reqBed.bedName}` : 'a different bed'}. It will be confirmed once they approve it — cancel below if this bed doesn't suit you.
+          </p>
+        </div>
+      )}
+
       {/* Expiry countdown */}
       {countdown && (
         <div className="bg-amber-50 border border-amber-100 rounded-2xl px-5 py-3 flex items-center gap-2 text-sm text-amber-800 font-semibold">
           <Clock size={15} />
-          {countdown} — approve or it will auto-expire
+          {countdown} — the hostel must respond before the request auto-expires
         </div>
       )}
 
       {/* Bed details card */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-50 text-sm">
         {[
-          { label: 'Hostel', value: request.hostelName ?? (request.hostelId ? `Hostel #${request.hostelId}` : '—'), icon: Building2 },
-          { label: 'Bed', value: request.bedInfo ?? (request.bedId ? `Bed #${request.bedId}` : '—'), icon: BedDouble },
+          { label: 'Hostel', value: request.hostelName ?? reqHostel?.name ?? (request.hostelId ? `Hostel #${request.hostelId}` : '—'), icon: Building2 },
+          { label: 'Bed', value: request.bedInfo ?? (reqBed ? `${reqRoomName} · ${reqBed.bedName}` : effectiveBedId ? `Bed #${effectiveBedId}` : '—'), icon: BedDouble },
           { label: 'Check-in', value: request.checkInDate ? fmtDate(request.checkInDate) : '—', icon: CalendarDays },
         ].map(({ label, value, icon: Icon }) => (
           <div key={label} className="flex items-center gap-3 px-5 py-3.5">
@@ -264,16 +298,7 @@ export default function BookingStatus() {
             <span className="font-semibold text-gray-800">{value}</span>
           </div>
         ))}
-        {request.roomId && (
-          <div className="flex items-center gap-3 px-5 py-3.5">
-            <Building2 size={14} className="text-gray-300 shrink-0" />
-            <span className="text-gray-400 w-24 shrink-0 font-medium">Room</span>
-            <span className="font-mono text-xs font-bold bg-gray-100 px-2 py-0.5 rounded-lg text-gray-700">
-              #{request.roomId}
-            </span>
-          </div>
-        )}
-        {request.expiresAt && (
+        {request.expiresAt && status === 'PENDING_APPROVAL' && (
           <div className="flex items-center gap-3 px-5 py-3.5">
             <Clock size={14} className="text-gray-300 shrink-0" />
             <span className="text-gray-400 w-24 shrink-0 font-medium">Expires</span>
@@ -290,11 +315,20 @@ export default function BookingStatus() {
         </div>
       )}
 
+      {['REJECTED', 'CANCELLED', 'EXPIRED'].includes(status) && (
+        <button
+          onClick={() => navigate('/app/discover')}
+          className="w-full py-3 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-opacity hover:opacity-90 brand-gradient"
+        >
+          <Compass size={16} /> Find another bed
+        </button>
+      )}
+
       {/* Cancel button */}
       {CANCELLABLE_STATUSES.has(status) && (
         <div className="flex flex-col gap-3">
           <button
-            onClick={() => cancelMutation.mutate(request.id)}
+            onClick={() => { if (window.confirm('Cancel this booking request? Your reserved bed will be released.')) cancelMutation.mutate(request.id) }}
             disabled={cancelMutation.isPending}
             className="w-full py-2.5 rounded-xl text-sm font-semibold text-red-600 border border-red-200 bg-white hover:bg-red-50 transition-colors disabled:opacity-60"
           >

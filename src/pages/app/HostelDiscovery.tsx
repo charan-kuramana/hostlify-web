@@ -22,6 +22,10 @@ const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   FEMALE:  { label: 'Female', cls: 'bg-pink-100 text-pink-700' },
   'CO-ED': { label: 'Co-ed',  cls: 'bg-purple-100 text-purple-700' },
   COED:    { label: 'Co-ed',  cls: 'bg-purple-100 text-purple-700' },
+  // values actually stored by the API (hostel.hostelType)
+  BOYS:    { label: 'Boys',   cls: 'bg-blue-100 text-blue-700' },
+  GIRLS:   { label: 'Girls',  cls: 'bg-pink-100 text-pink-700' },
+  MIXED:   { label: 'Co-ed',  cls: 'bg-purple-100 text-purple-700' },
 }
 
 function HostelCardItem({ hostel, onView }: { hostel: HostelCard; onView: () => void }) {
@@ -63,7 +67,7 @@ function HostelCardItem({ hostel, onView }: { hostel: HostelCard; onView: () => 
         {hostel.minRent != null && (
           <div className="flex items-center gap-1">
             <IndianRupee size={12} className="text-gray-400" />
-            <span className="text-xs font-semibold text-gray-700">₹{hostel.minRent.toLocaleString()}<span className="font-normal text-gray-400">/mo</span></span>
+            <span className="text-xs font-semibold text-gray-700">₹{Number(hostel.minRent).toLocaleString('en-IN')}<span className="font-normal text-gray-400">/mo</span></span>
           </div>
         )}
       </div>

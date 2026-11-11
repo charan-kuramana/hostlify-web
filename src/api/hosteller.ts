@@ -1,8 +1,39 @@
+import axios from 'axios'
 import { apiClient } from './client'
 
 // ─── Booking / Profile ────────────────────────────────────────────────────────
 export const getMyBooking = () =>
   apiClient.get('/booking/me').then((r) => r.data.data)
+
+/** True when the API answered 404 — i.e. "nothing yet" (no booking / no due / no request). */
+export const isNotFound = (err: any) => err?.response?.status === 404
+
+/** react-query retry policy: never retry a 404 ("nothing yet"), retry other failures twice. */
+export const retryUnless404 = (count: number, err: any) => !isNotFound(err) && count < 2
+
+/**
+ * Active booking enriched with display names (hostel / floor / room / bed).
+ * /booking/me returns only ids, so resolve names from the hostel-detail + room-availability endpoints.
+ */
+export const getMyStay = async () => {
+  const b = await getMyBooking()
+  if (!b) return b
+  const [hostel, rooms] = await Promise.all([
+    b.hostelName && b.floorName ? null : getHostelDetail(b.hostelId).catch(() => null),
+    b.roomName && b.bedName ? [] : (b.floorId ? getRoomsWithAvailability(b.floorId).catch(() => []) : []),
+  ])
+  const room = ((rooms ?? []) as any[]).find((r: any) => (r.id ?? r.roomId) === b.roomId)
+  const bed = room?.beds?.find((x: any) => x.id === b.bedId)
+  const floor = hostel?.floors?.find((f: any) => (f.floorId ?? f.id) === b.floorId)
+  return {
+    ...b,
+    hostelName: b.hostelName ?? hostel?.name,
+    floorName: b.floorName ?? floor?.floorName,
+    roomName: b.roomName ?? room?.roomName,
+    bedName: b.bedName ?? bed?.bedName,
+    roomType: b.roomType ?? room?.roomType,
+  }
+}
 
 export const getHostellerProfile = (id: number) =>
   apiClient.get(`/hostellers/${id}`).then((r) => r.data.data)
@@ -96,9 +127,22 @@ export const getMyCleaning = () =>
 export const requestCleaning = (data: Record<string, unknown>) =>
   apiClient.post('/cleaning', data).then((r) => r.data.data)
 
+export const cancelCleaning = (requestId: number) =>
+  apiClient.patch(`/cleaning/${requestId}/cancel`).then((r) => r.data.data)
+
 // ─── Reviews ──────────────────────────────────────────────────────────────────
 export const submitReview = (data: { rating: number; reviewText: string }) =>
   apiClient.post('/reviews', data).then((r) => r.data.data)
+
+// { hostelId, totalReviews, averageRating, reviews: [...] } — visible reviews only
+export const getHostelReviews = (hostelId: number) =>
+  apiClient.get(`/reviews/hostel/${hostelId}`).then((r) => r.data.data)
+
+// ─── Referral (applied right after signup, with the new account's token) ─────
+// Uses plain axios so the interceptor can't swap in some other stored session's token.
+export const applyReferralCode = (code: string, hostellerId: number, accessToken: string) =>
+  axios.post(`${apiClient.defaults.baseURL}/referral/validate`, { code, hostellerId: String(hostellerId) },
+    { headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.data.data)
 
 // ─── Hostel Discovery ─────────────────────────────────────────────────────────
 export const getNearbyHostels = (lat: number, lng: number, radius = 10) =>

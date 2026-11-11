@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, BedDouble, Layers, DoorOpen, CheckCircle2, CalendarDays, AlignLeft, Lock, ArrowRight } from 'lucide-react'
 import {
   getHostelDetail,
@@ -182,14 +182,23 @@ function SeatMapStep({ floorId, selectedBed, onSelect }: { floorId: number; sele
 function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, selectedBed, onSuccess }: {
   hostelId: number; hostelName: string; selectedFloor: any; selectedRoom: any; selectedBed: any; onSuccess: () => void
 }) {
-  const today = new Date().toISOString().split('T')[0]
+  const today = new Date().toLocaleDateString('en-CA') // local YYYY-MM-DD (toISOString is UTC → "yesterday" before 5:30am IST)
   const [checkInDate, setCheckInDate] = useState(today)
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: () => submitBookingRequest({ hostelId, bedId: selectedBed.id, checkInDate, preferenceNotes: notes || undefined }),
-    onSuccess,
+    mutationFn: () => {
+      if (!checkInDate || checkInDate < today) return Promise.reject({ response: { data: { message: 'Check-in date cannot be in the past.' } } })
+      return submitBookingRequest({ hostelId, bedId: selectedBed.id, checkInDate, preferenceNotes: notes.trim() || undefined })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-booking-request'] })
+      queryClient.invalidateQueries({ queryKey: ['floors-availability'] })
+      queryClient.invalidateQueries({ queryKey: ['rooms-availability'] })
+      onSuccess()
+    },
     onError: (err: any) => setError(err?.response?.data?.message ?? 'Failed to submit booking request. Please try again.'),
   })
 
@@ -221,7 +230,7 @@ function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, select
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <label className="block text-sm font-semibold text-gray-700 mb-2"><span className="flex items-center gap-1.5"><AlignLeft size={14} /> Preference Notes <span className="font-normal text-gray-400">(optional)</span></span></label>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Any preferences or special requirements..."
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={1000} placeholder="Any preferences or special requirements..."
           className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400 resize-none" />
       </div>
 

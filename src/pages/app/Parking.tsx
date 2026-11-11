@@ -4,6 +4,12 @@ import { Plus, X, Car, CheckCircle2 } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import PageHeader from '../../components/ui/PageHeader'
 import { getMyParking, registerParking, deregisterParking } from '../../api/hosteller'
+import { useAuthStore } from '../../store/authStore'
+import { useToastStore } from '../../store/toastStore'
+import NoStay from './NoStay'
+
+// Indian registration plates, e.g. AP16CK4521 / AP 16 CK 4521 / AP-16-CK-4521 / 22BH1234AA
+const PLATE_RE = /^([A-Z]{2}[ -]?\d{1,2}[ -]?[A-Z]{0,3}[ -]?\d{1,4}|\d{2}[ -]?BH[ -]?\d{4}[ -]?[A-Z]{1,2})$/
 
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -14,8 +20,11 @@ const VEHICLE_TYPES = ['Car', 'Bike', 'Scooter']
 
 export default function Parking() {
   const queryClient = useQueryClient()
+  const { hostelId } = useAuthStore()
+  const { show } = useToastStore()
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ vehicleNumber: '', type: '', notes: '' })
+  const [form, setForm] = useState({ vehicleNumber: '', type: '' })
+  const [plateErr, setPlateErr] = useState<string | null>(null)
 
   const { data: parkingData, isLoading, error } = useQuery({
     queryKey: ['my-parking'],
@@ -27,7 +36,11 @@ export default function Parking() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['my-parking'] })
       setShowForm(false)
-      setForm({ vehicleNumber: '', type: '', notes: '' })
+      setForm({ vehicleNumber: '', type: '' })
+      show('success', 'Vehicle registered', 'Staff will assign you a parking slot.')
+    },
+    onError: (e: any) => {
+      if (![400, 409].includes(e?.response?.status)) show('error', 'Registration failed', 'Could not register your vehicle. Please try again.')
     },
   })
 
@@ -35,20 +48,28 @@ export default function Parking() {
     mutationFn: (id: number) => deregisterParking(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['my-parking'] })
+      show('success', 'Parking removed', 'Your vehicle has been de-registered.')
+    },
+    onError: (e: any) => {
+      if (![400, 409].includes(e?.response?.status)) show('error', 'Could not remove', 'Please try again.')
     },
   })
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    registerMutation.mutate({
-      vehicleNumber: form.vehicleNumber,
-      vehicleType: form.type,
-      notes: form.notes,
-    })
+    const plate = form.vehicleNumber.trim().replace(/\s+/g, ' ')
+    if (!PLATE_RE.test(plate)) {
+      setPlateErr('Enter a valid vehicle number, e.g. AP 16 CK 4521')
+      return
+    }
+    setPlateErr(null)
+    registerMutation.mutate({ vehicleNumber: plate, vehicleType: form.type })
   }
 
   const parkingList = parkingData ?? []
   const activeSlot = parkingList.find((p: any) => p.status === 'ACTIVE')
+
+  if (!hostelId) return <NoStay title="Vehicle Parking" subtitle="Request a vehicle parking slot" />
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
@@ -85,7 +106,7 @@ export default function Parking() {
               <div>
                 <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-0.5">Active Slot</p>
                 <h3 className="text-lg font-bold text-gray-900 leading-tight">
-                  {activeSlot.slotNumber ?? activeSlot.slot ?? '—'}
+                  {activeSlot.slotNumber ?? activeSlot.slot ?? 'Slot not assigned yet'}
                 </h3>
               </div>
             </div>
@@ -102,11 +123,11 @@ export default function Parking() {
             </div>
             <div>
               <p className="text-xs text-emerald-600 font-medium">Since</p>
-              <p className="text-sm font-semibold text-gray-800 mt-0.5">{fmtDate(activeSlot.requestedDate ?? activeSlot.createdAt)}</p>
+              <p className="text-sm font-semibold text-gray-800 mt-0.5">{fmtDate(activeSlot.registeredAt ?? activeSlot.requestedDate ?? activeSlot.createdAt)}</p>
             </div>
           </div>
           <button
-            onClick={() => deregisterMutation.mutate(activeSlot.id)}
+            onClick={() => { if (window.confirm(`Remove parking for ${activeSlot.vehicleNumber}?`)) deregisterMutation.mutate(activeSlot.id) }}
             disabled={deregisterMutation.isPending}
             className="mt-4 px-4 py-2 rounded-xl text-sm font-semibold text-red-600 border border-red-200 bg-white hover:bg-red-50 transition-colors disabled:opacity-60"
           >
@@ -140,11 +161,13 @@ export default function Parking() {
                 </label>
                 <input
                   required
+                  maxLength={20}
                   value={form.vehicleNumber}
-                  onChange={(e) => setForm((f) => ({ ...f, vehicleNumber: e.target.value.toUpperCase() }))}
-                  placeholder="KA-01-AB-1234"
+                  onChange={(e) => { setForm((f) => ({ ...f, vehicleNumber: e.target.value.toUpperCase() })); setPlateErr(null) }}
+                  placeholder="AP 16 CK 4521"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 focus:bg-white transition-colors"
                 />
+                {plateErr && <p className="mt-1 text-xs text-red-500">{plateErr}</p>}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
@@ -162,18 +185,6 @@ export default function Parking() {
                   ))}
                 </select>
               </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                Notes (optional)
-              </label>
-              <textarea
-                rows={2}
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                placeholder="Any additional details…"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none bg-gray-50 focus:bg-white transition-colors"
-              />
             </div>
             <div className="flex justify-end gap-3 pt-1">
               <button
@@ -232,7 +243,7 @@ export default function Parking() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 font-semibold text-gray-700">{r.slotNumber ?? r.slot ?? '—'}</td>
-                  <td className="px-5 py-3.5 text-gray-500">{fmtDate(r.requestedDate ?? r.createdAt)}</td>
+                  <td className="px-5 py-3.5 text-gray-500">{fmtDate(r.registeredAt ?? r.requestedDate ?? r.createdAt)}</td>
                   <td className="px-5 py-3.5">
                     <Badge status={r.status} />
                   </td>

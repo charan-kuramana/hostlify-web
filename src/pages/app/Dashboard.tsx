@@ -1,9 +1,10 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { CreditCard, Home, Building2, Bell, ChevronRight, UtensilsCrossed, Megaphone, Wrench, Gift, CalendarClock, AlertCircle, UserCheck } from 'lucide-react'
+import { CreditCard, Home, Building2, Bell, ChevronRight, UtensilsCrossed, Megaphone, Wrench, Gift, CalendarClock, AlertCircle, UserCheck, Compass } from 'lucide-react'
 import StatCard from '../../components/ui/StatCard'
 import { useAuthStore } from '../../store/authStore'
-import { getMyBooking, getHostellerProfile, getCurrentDue, getAnnouncements, getProfileCompletion } from '../../api/hosteller'
+import { getMyStay, getHostellerProfile, getCurrentDue, getAnnouncements, getProfileCompletion, retryUnless404, isNotFound } from '../../api/hosteller'
+import ReviewCard from './ReviewCard'
 
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -30,10 +31,13 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const { hostelId, hostellerProfileId, email } = useAuthStore()
 
-  const { data: booking } = useQuery({
+  const { data: booking, error: bookingError, isLoading: bookingLoading } = useQuery({
     queryKey: ['my-booking'],
-    queryFn: getMyBooking,
+    queryFn: getMyStay,
+    retry: retryUnless404,
   })
+  // 404 = registered but no approved booking yet (pending hosteller)
+  const noStay = !bookingLoading && !booking && isNotFound(bookingError)
 
   const { data: profile } = useQuery({
     queryKey: ['profile', hostellerProfileId],
@@ -44,6 +48,7 @@ export default function Dashboard() {
   const { data: currentDue } = useQuery({
     queryKey: ['current-due'],
     queryFn: getCurrentDue,
+    retry: retryUnless404,
   })
 
   const { data: announcements } = useQuery({
@@ -59,13 +64,18 @@ export default function Dashboard() {
   })
 
   const displayName = profile?.name ?? email ?? '...'
-  const roomNumber = booking?.room?.roomNumber ?? '...'
-  const hostelName = booking?.hostel?.name ?? '...'
-  const joinDate = booking?.checkInDate ? fmtDate(booking.checkInDate) : '...'
+  const roomNumber = booking?.roomName ?? profile?.roomNumber ?? (booking ? '—' : '...')
+  const hostelName = booking?.hostelName ?? (booking ? '—' : '...')
+  const joinDate = booking?.checkinDate ? fmtDate(booking.checkinDate) : '...'
 
-  const dueAmount = currentDue?.amount != null ? `₹${currentDue.amount.toLocaleString()}` : '—'
-  const dueDateStr = currentDue?.dueDate ? fmtDate(currentDue.dueDate) : '—'
-  const daysLeft = currentDue?.daysLeft ?? null
+  const dueOpen = currentDue && currentDue.status !== 'PAID'
+  const dueAmount = dueOpen && currentDue.amount != null ? `₹${Number(currentDue.amount).toLocaleString('en-IN')}` : '—'
+  const dueDateStr = dueOpen && currentDue.dueDate ? fmtDate(currentDue.dueDate) : '—'
+  // Whole days until the due date (negative = overdue), computed in local time.
+  const daysLeft = dueOpen && currentDue.dueDate
+    ? Math.round((new Date(currentDue.dueDate + 'T00:00:00').getTime() - new Date(new Date().toDateString()).getTime()) / 86400000)
+    : null
+  const daysLabel = daysLeft == null ? '' : daysLeft < 0 ? `Overdue by ${-daysLeft} day${daysLeft === -1 ? '' : 's'}` : daysLeft === 0 ? 'Due today' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`
 
   const topAnnouncements = ((announcements ?? []) as any[]).slice(0, 3)
 
@@ -82,7 +92,9 @@ export default function Dashboard() {
         />
         <p className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.6)' }}>Welcome back, {displayName} 👋</p>
         <h1 className="text-2xl font-bold mt-0.5 tracking-tight">Your Hostel at a Glance</h1>
-        <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.5)' }}>{hostelName} · Room {roomNumber} · Active Resident</p>
+        <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.5)' }}>
+          {noStay ? 'No active stay yet — find a hostel and request a bed' : `${hostelName} · Room ${roomNumber} · Active Resident`}
+        </p>
       </div>
 
       {/* Profile completion banner */}
@@ -120,6 +132,25 @@ export default function Dashboard() {
         </div>
       )}
 
+      {noStay && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+              <Compass size={18} className="text-brand-600" />
+            </div>
+            <div>
+              <p className="font-semibold text-gray-800 text-sm">You haven't moved in yet</p>
+              <p className="text-xs text-gray-500 mt-0.5">Discover hostels, pick a bed and track your request. Dues, menu and services unlock once a hostel approves your booking.</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Link to="/app/discover" className="px-4 py-2 rounded-xl text-xs font-bold text-white brand-gradient hover:opacity-90">Discover Hostels</Link>
+            <Link to="/app/booking-status" className="px-4 py-2 rounded-xl text-xs font-bold text-brand-600 border border-brand-200 hover:bg-brand-50">Booking Status</Link>
+          </div>
+        </div>
+      )}
+
+      {!noStay && (<>
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
@@ -128,7 +159,7 @@ export default function Dashboard() {
           sub={dueDateStr !== '—' ? `Due ${dueDateStr}` : 'No due information'}
           icon={<CreditCard size={20} className="text-brand-600" />}
           iconBg="bg-brand-50"
-          trend={daysLeft != null ? { value: `${daysLeft} days`, up: daysLeft > 0 } : undefined}
+          trend={daysLeft != null ? { value: daysLabel, up: daysLeft >= 0 } : undefined}
         />
         <StatCard
           label="My Room"
@@ -155,25 +186,28 @@ export default function Dashboard() {
           <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse" />
           <p className="text-sm font-semibold text-amber-800">Upcoming Payment</p>
           {daysLeft != null && (
-            <span className="ml-auto text-xs font-semibold text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full">
-              {daysLeft} days left
+            <span className={`ml-auto text-xs font-semibold px-2.5 py-0.5 rounded-full ${daysLeft < 0 ? 'text-red-700 bg-red-100' : 'text-amber-700 bg-amber-100'}`}>
+              {daysLabel}
             </span>
           )}
         </div>
         <div className="flex items-center justify-between gap-4 px-5 py-4 flex-wrap">
           <div>
-            <p className="text-xs text-gray-400 font-medium">{currentDue?.description ?? 'Monthly Hostel Fee'}</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1 tracking-tight">{dueAmount}</p>
+            <p className="text-xs text-gray-400 font-medium">{dueOpen ? 'Monthly Hostel Fee' : 'No pending payment'}</p>
+            <p className="text-3xl font-bold text-gray-900 mt-1 tracking-tight">{dueOpen ? dueAmount : 'All clear'}</p>
           </div>
-          <Link
+          {dueOpen && <Link
             to="/app/dues"
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
             style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}
           >
             <CreditCard size={15} /> Pay Now <ChevronRight size={14} />
-          </Link>
+          </Link>}
         </div>
       </div>
+
+      {hostelId && <ReviewCard hostelId={hostelId} hostellerProfileId={hostellerProfileId} />}
+      </>)}
 
       {/* Announcements + Quick Access */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
