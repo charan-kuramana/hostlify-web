@@ -89,6 +89,74 @@ export const getPaymentRecords = (hostelId: number) =>
 export const recordCashPayment = (data: Record<string, unknown>) =>
   apiClient.post('/payment/cash', data).then((r) => r.data.data)
 
+// ─── Payment settings, charges, reminders, UPI verification ─────────────────
+export const getPaymentSettings = (hostelId: number) =>
+  apiClient.get(`/payment/settings/hostel/${hostelId}`).then((r) => r.data.data)
+
+export const updatePaymentSettings = (hostelId: number, data: Record<string, unknown>) =>
+  apiClient.put(`/payment/settings/hostel/${hostelId}`, data).then((r) => r.data.data)
+
+export const addCharge = (data: {
+  hostelId: number; hostellerId?: number; applyToAll?: boolean; dueType: string
+  amount: number; description?: string; dueDate?: string
+}) => apiClient.post('/payment/dues/charge', data).then((r) => r.data.data)
+
+export const waiveDue = (dueId: number) =>
+  apiClient.delete(`/payment/dues/${dueId}`).then((r) => r.data.data)
+
+export const sendDueReminder = (dueId: number) =>
+  apiClient.post(`/payment/dues/${dueId}/remind`).then((r) => r.data.data)
+
+// ─── Public listing, photos, enquiries ───────────────────────────────────────
+export const getListing = (hostelId: number) =>
+  apiClient.get(`/listing/hostel/${hostelId}`).then((r) => r.data.data)
+
+export const updateListing = (hostelId: number, data: { listingEnabled?: boolean; slug?: string }) =>
+  apiClient.put(`/listing/hostel/${hostelId}`, data).then((r) => r.data.data)
+
+export const uploadListingPhoto = (hostelId: number, file: File, caption?: string) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (caption) fd.append('caption', caption)
+  return apiClient.post(`/listing/hostel/${hostelId}/photos`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data)
+}
+
+export const reorderListingPhotos = (hostelId: number, ids: number[]) =>
+  apiClient.put(`/listing/hostel/${hostelId}/photos/order`, { ids }).then((r) => r.data.data)
+
+export const setCoverPhoto = (photoId: number) =>
+  apiClient.put(`/listing/photos/${photoId}/cover`).then((r) => r.data.data)
+
+export const updatePhotoCaption = (photoId: number, caption: string) =>
+  apiClient.put(`/listing/photos/${photoId}`, { caption }).then((r) => r.data.data)
+
+export const deleteListingPhoto = (photoId: number) =>
+  apiClient.delete(`/listing/photos/${photoId}`).then((r) => r.data.data)
+
+export const getEnquiries = (hostelId: number, status?: string) =>
+  apiClient.get(`/listing/hostel/${hostelId}/enquiries`, { params: { status } }).then((r) => r.data.data)
+
+export const getEnquiryCounts = (hostelId: number) =>
+  apiClient.get(`/listing/hostel/${hostelId}/enquiries/counts`).then((r) => r.data.data as Record<string, number>)
+
+export const updateEnquiry = (id: number, data: Record<string, unknown>) =>
+  apiClient.patch(`/listing/enquiries/${id}`, data).then((r) => r.data.data)
+
+export const getEmailStatus = () =>
+  apiClient.get('/notifications/email/status').then((r) => r.data.data as { enabled: boolean })
+
+export const sendTestEmail = () =>
+  apiClient.post('/notifications/email/test').then((r) => r.data.data as { to: string; enabled: boolean; sent: boolean; error?: string })
+
+export const getPendingUpiClaims = (hostelId: number) =>
+  apiClient.get(`/payment/upi/pending/hostel/${hostelId}`).then((r) => r.data.data)
+
+export const confirmUpiClaim = (recordId: number) =>
+  apiClient.post(`/payment/upi/${recordId}/confirm`).then((r) => r.data.data)
+
+export const rejectUpiClaim = (recordId: number, reason?: string) =>
+  apiClient.post(`/payment/upi/${recordId}/reject`, { reason }).then((r) => r.data.data)
+
 export const generateDues = (hostelId: number, month: number, year: number) =>
   apiClient.post(`/payment/dues/generate?hostelId=${hostelId}&month=${month}&year=${year}`).then((r) => r.data.data)
 

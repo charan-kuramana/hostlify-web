@@ -20,6 +20,7 @@ const SuperAdminLayout = lazy(() => import('./layouts/SuperAdminLayout'))
 // Hosteller pages
 const AppDashboard = lazy(() => import('./pages/app/Dashboard'))
 const MyDues = lazy(() => import('./pages/app/MyDues'))
+const MyDocuments = lazy(() => import('./pages/app/MyDocuments'))
 const MyProfile = lazy(() => import('./pages/app/MyProfile'))
 const AppComplaints = lazy(() => import('./pages/app/Complaints'))
 const AppMenu = lazy(() => import('./pages/app/Menu'))
@@ -55,6 +56,11 @@ const Reviews = lazy(() => import('./pages/admin/Reviews'))
 const Account = lazy(() => import('./pages/admin/Account'))
 const MemberDetail = lazy(() => import('./pages/admin/MemberDetail'))
 const Maintenance = lazy(() => import('./pages/admin/Maintenance'))
+const Enquiries = lazy(() => import('./pages/admin/Enquiries'))
+
+// Public listing pages (no login)
+const PublicHostels = lazy(() => import('./pages/public/PublicHostels'))
+const PublicHostelDetail = lazy(() => import('./pages/public/PublicHostelDetail'))
 
 // Super Admin pages
 const SuperAdminDashboard = lazy(() => import('./pages/super-admin/Dashboard'))
@@ -87,6 +93,8 @@ export default function App() {
           <Route path="/auth/super-admin/login" element={<SuperAdminLogin />} />
           <Route path="/auth/forgot-password" element={<ForgotPassword />} />
           <Route path="/unauthorized" element={<Unauthorized />} />
+          <Route path="/hostels" element={<PublicHostels />} />
+          <Route path="/hostels/:slug" element={<PublicHostelDetail />} />
 
           {/* ── Hosteller Portal (/app/*) ── */}
           <Route element={<AuthGuard />}>
@@ -95,6 +103,7 @@ export default function App() {
                 <Route path="/app" element={<Navigate to="/app/dashboard" replace />} />
                 <Route path="/app/dashboard" element={<AppDashboard />} />
                 <Route path="/app/dues" element={<MyDues />} />
+                <Route path="/app/documents" element={<MyDocuments />} />
                 <Route path="/app/profile" element={<MyProfile />} />
                 <Route path="/app/complaints" element={<AppComplaints />} />
                 <Route path="/app/menu" element={<AppMenu />} />
@@ -137,6 +146,7 @@ export default function App() {
                 <Route path="/admin/account" element={<Account />} />
                 <Route path="/admin/members/:id" element={<MemberDetail />} />
                 <Route path="/admin/maintenance" element={<Maintenance />} />
+                <Route path="/admin/enquiries" element={<Enquiries />} />
                 <Route path="/admin/employees" element={<Navigate to="/admin/staff" replace />} />
                 {/* /admin/booking-requests merged into /admin/allocations */}
               </Route>

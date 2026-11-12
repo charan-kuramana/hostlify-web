@@ -74,6 +74,14 @@ export const getMyPaymentRecords = () =>
 export const initiateRazorpay = (dueId: number) =>
   apiClient.post('/payment/razorpay/initiate', { dueId }).then((r) => r.data.data)
 
+// How to pay (hostel UPI ID) + the hostel's late-fee policy
+export const getMyPaymentSettings = () =>
+  apiClient.get('/payment/settings/my').then((r) => r.data.data)
+
+// "I paid by UPI" — staff confirm it against the owner's UPI app
+export const submitUpiClaim = (payload: { dueId: number; amount: number; utr: string }) =>
+  apiClient.post('/payment/upi/claim', payload).then((r) => r.data.data)
+
 // Verify the checkout signature server-side and capture the payment
 export const verifyRazorpay = (payload: { razorpayPaymentId: string; razorpayOrderId: string; razorpaySignature: string }) =>
   apiClient.post('/payment/razorpay/verify', payload).then((r) => r.data.data)

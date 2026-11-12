@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Phone, Mail, Home, CreditCard, MessageSquare, Activity, LogOut, Pencil, X } from 'lucide-react'
+import { ArrowLeft, Phone, Mail, Home, CreditCard, MessageSquare, Activity, LogOut, Pencil, X, FileCheck } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
+import ResidentDocumentsPanel from '../../components/compliance/ResidentDocumentsPanel'
 import {
   getMemberById, checkoutHosteller, getAllDues, getHostelComplaints,
   updateMember, getEmergencyContact, saveEmergencyContact,
@@ -33,7 +34,7 @@ const ACTIVITY_DOT: Record<string, string> = {
   complaint: 'bg-emerald-500',
 }
 
-type Tab = 'overview' | 'payments' | 'complaints' | 'activity'
+type Tab = 'overview' | 'documents' | 'payments' | 'complaints' | 'activity'
 
 export default function MemberDetail() {
   const navigate = useNavigate()
@@ -126,6 +127,7 @@ export default function MemberDetail() {
 
   const TABS: { id: Tab; label: string; icon: typeof Home }[] = [
     { id: 'overview', label: 'Overview', icon: Home },
+    { id: 'documents', label: 'ID & Documents', icon: FileCheck },
     { id: 'payments', label: 'Payments', icon: CreditCard },
     { id: 'complaints', label: 'Complaints', icon: MessageSquare },
     { id: 'activity', label: 'Activity', icon: Activity },
@@ -252,6 +254,9 @@ export default function MemberDetail() {
           </button>
         ))}
       </div>
+
+      {/* ID & Documents Tab: Aadhaar check, agreement, checklists, deposit settlement */}
+      {activeTab === 'documents' && <ResidentDocumentsPanel hostellerId={member.id} residentName={member.name} />}
 
       {/* Overview Tab */}
       {activeTab === 'overview' && (

@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Settings, QrCode, Building2, Save, Plus, ChevronDown, ChevronRight, Pencil, X, Check, BedDouble } from 'lucide-react'
+import { Settings, QrCode, Building2, Save, Plus, ChevronDown, ChevronRight, Pencil, X, Check, BedDouble, IndianRupee, Globe, ShieldCheck } from 'lucide-react'
+import ComplianceSettingsPanel from '../../components/compliance/ComplianceSettingsPanel'
 import PageHeader from '../../components/ui/PageHeader'
+import PaymentSettingsPanel from '../../components/payments/PaymentSettingsPanel'
+import ListingSettingsPanel from '../../components/listing/ListingSettingsPanel'
 import {
   getHostel, updateHostel, getHostelStructure, createFloor, createRoomWithBeds, createBed, renameFloor,
 } from '../../api/staff'
@@ -17,6 +20,9 @@ interface HostelSettings {
   contact: string
   pincode: string
   defaultRent: number
+  about: string
+  latitude: string
+  longitude: string
 }
 
 // Values stored in hostel_hostels.hostel_type
@@ -26,7 +32,7 @@ const HOSTEL_TYPES: { value: string; label: string }[] = [
   { value: 'MIXED', label: 'Co-ed' },
 ]
 
-type TabType = 'general' | 'qr' | 'floors'
+type TabType = 'general' | 'listing' | 'payments' | 'compliance' | 'qr' | 'floors'
 
 export default function AdminSettings() {
   const { activeHostelId } = useAuthStore()
@@ -38,7 +44,9 @@ export default function AdminSettings() {
   const [settings, setSettings] = useState<HostelSettings>({
     hostelName: '', address: '', city: '', locality: '',
     type: 'MIXED', contact: '', pincode: '', defaultRent: 0,
+    about: '', latitude: '', longitude: '',
   })
+  const [locating, setLocating] = useState(false)
 
   // Floor editing state
   const [editingFloorId, setEditingFloorId] = useState<number | null>(null)
@@ -80,6 +88,9 @@ export default function AdminSettings() {
         contact: hostel.contactPhone ?? '',
         pincode: hostel.pincode ?? '',
         defaultRent: Number(hostel.defaultRent ?? 0),
+        about: hostel.about ?? '',
+        latitude: hostel.latitude != null ? String(hostel.latitude) : '',
+        longitude: hostel.longitude != null ? String(hostel.longitude) : '',
       })
     }
   }, [hostel])
@@ -159,6 +170,10 @@ export default function AdminSettings() {
     if (!(settings.defaultRent >= 0)) {
       show('error', 'Invalid rent', 'Default rent cannot be negative.'); return
     }
+    const lat = settings.latitude.trim(), lng = settings.longitude.trim()
+    if ((lat === '') !== (lng === '') || (lat && (isNaN(+lat) || Math.abs(+lat) > 90)) || (lng && (isNaN(+lng) || Math.abs(+lng) > 180))) {
+      show('error', 'Invalid location', 'Enter both latitude and longitude, or use "Use my current location".'); return
+    }
     updateMut.mutate({
       name: settings.hostelName.trim(),
       address: settings.address.trim(),
@@ -168,7 +183,24 @@ export default function AdminSettings() {
       contactPhone: settings.contact.trim(),
       ...(settings.pincode.trim() ? { pincode: settings.pincode.trim() } : {}),
       defaultRent: settings.defaultRent,
+      about: settings.about.trim(),
+      latitude: lat || null,
+      longitude: lng || null,
     })
+  }
+
+  function fillCurrentLocation() {
+    if (!navigator.geolocation) { show('error', 'Not available', 'Your browser cannot share location.'); return }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setSettings((s) => ({ ...s, latitude: pos.coords.latitude.toFixed(6), longitude: pos.coords.longitude.toFixed(6) }))
+        setLocating(false)
+        show('success', 'Location filled in', 'Check it on the map preview, then Save Changes.')
+      },
+      () => { setLocating(false); show('error', 'Location blocked', 'Allow location access, or paste the coordinates from Google Maps.') },
+      { enableHighAccuracy: true, timeout: 15000 },
+    )
   }
 
   function toggleFloor(id: number) {
@@ -228,6 +260,9 @@ export default function AdminSettings() {
 
   const tabs: { key: TabType; label: string; icon: typeof Settings }[] = [
     { key: 'general', label: 'General', icon: Settings },
+    { key: 'listing', label: 'Public Listing', icon: Globe },
+    { key: 'payments', label: 'Payments', icon: IndianRupee },
+    { key: 'compliance', label: 'Compliance', icon: ShieldCheck },
     { key: 'qr', label: 'QR Code', icon: QrCode },
     { key: 'floors', label: 'Floors & Rooms', icon: Building2 },
   ]
@@ -305,6 +340,29 @@ export default function AdminSettings() {
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Pincode</label>
                 <input inputMode="numeric" maxLength={6} value={settings.pincode} onChange={(e) => setSettings((s) => ({ ...s, pincode: e.target.value.replace(/\D/g, '') }))} className={inputCls} />
               </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">About your hostel (shown on your public page)</label>
+                <textarea rows={4} maxLength={3000} value={settings.about} onChange={(e) => setSettings((s) => ({ ...s, about: e.target.value }))}
+                  placeholder="e.g. 5 minutes from Benz Circle. Home-style food, 24x7 water, Wi-Fi, CCTV, laundry. Walking distance to colleges and IT offices."
+                  className={inputCls + ' resize-none'} />
+              </div>
+              <div className="sm:col-span-2">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <label className="text-xs font-semibold text-gray-500">Map location</label>
+                  <button type="button" onClick={fillCurrentLocation} disabled={locating} className="ml-auto text-xs font-semibold text-brand-600 disabled:opacity-60">
+                    {locating ? 'Finding…' : 'Use my current location'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <input value={settings.latitude} onChange={(e) => setSettings((s) => ({ ...s, latitude: e.target.value }))} placeholder="Latitude, e.g. 16.5062" inputMode="decimal" className={inputCls} />
+                  <input value={settings.longitude} onChange={(e) => setSettings((s) => ({ ...s, longitude: e.target.value }))} placeholder="Longitude, e.g. 80.6480" inputMode="decimal" className={inputCls} />
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">Tip: stand at the hostel and tap "Use my current location", or in Google Maps long-press the building and copy the numbers.</p>
+                {settings.latitude && settings.longitude && !isNaN(+settings.latitude) && !isNaN(+settings.longitude) && (
+                  <iframe title="Map preview" className="w-full h-48 rounded-xl border border-gray-100 mt-2" loading="lazy"
+                    src={`https://maps.google.com/maps?q=${settings.latitude},${settings.longitude}&z=16&output=embed`} />
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-3 pt-2">
               <button
@@ -325,6 +383,15 @@ export default function AdminSettings() {
           </form>
         </div>
       )}
+
+      {/* Public Listing Tab */}
+      {activeTab === 'listing' && activeHostelId && <ListingSettingsPanel hostelId={activeHostelId} />}
+
+      {/* Compliance Tab */}
+      {activeTab === 'compliance' && activeHostelId && <ComplianceSettingsPanel hostelId={activeHostelId} />}
+
+      {/* Payments Tab */}
+      {activeTab === 'payments' && activeHostelId && <PaymentSettingsPanel hostelId={activeHostelId} />}
 
       {/* QR Code Tab */}
       {activeTab === 'qr' && (

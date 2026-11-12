@@ -1,0 +1,10 @@
+# Public hostel pages are indexable; app portals are not.
+User-agent: *
+Allow: /hostels
+Disallow: /app/
+Disallow: /admin/
+Disallow: /super-admin/
+Disallow: /auth/
+
+# In production, serve the API's /api/v1/public/sitemap.xml at /sitemap.xml (reverse proxy) and uncomment:
+# Sitemap: https://app.hostlify.in/sitemap.xml

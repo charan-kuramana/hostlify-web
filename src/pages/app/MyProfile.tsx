@@ -421,7 +421,10 @@ export default function MyProfile() {
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">ID Proof Number</label>
               {editing ? (
-                <input className={inputCls} maxLength={30} value={form.idProofNumber} onChange={field('idProofNumber')} placeholder="ID number" />
+                <>
+                  <input className={inputCls} maxLength={30} value={form.idProofNumber} onChange={field('idProofNumber')} placeholder="ID number" />
+                  {form.idProofType === 'AADHAAR' && <p className="text-[11px] text-gray-400 mt-1">For your privacy only the last 4 digits are kept. To verify your Aadhaar, use My Documents.</p>}
+                </>
               ) : (
                 <p className="text-sm text-gray-800 font-medium py-2.5">{form.idProofNumber || '—'}</p>
               )}

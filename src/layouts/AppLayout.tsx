@@ -14,6 +14,7 @@ import {
   CalendarClock,
   BedDouble,
   HeartHandshake,
+  FileCheck,
 } from 'lucide-react'
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -38,6 +39,7 @@ const navItems: NavEntry[] = [
     icon: BedDouble,
     children: [
       { label: 'My Dues', to: '/app/dues', icon: CreditCard },
+      { label: 'My Documents', to: '/app/documents', icon: FileCheck },
       { label: 'Complaints', to: '/app/complaints', icon: MessageSquare },
       { label: 'Leave', to: '/app/leave', icon: CalendarX },
       { label: 'My Profile', to: '/app/profile', icon: User },

@@ -20,6 +20,7 @@ import {
   Building2,
   Wallet,
   Megaphone,
+  Inbox,
 } from 'lucide-react'
 import PortalLayout, { type NavEntry, type NavGroup, type NavItem } from './PortalLayout'
 import { useAuthStore } from '../store/authStore'
@@ -39,6 +40,7 @@ const NAV: NavEntry[] = [
     label: 'Residents',
     icon: Users,
     children: [
+      { label: 'Enquiries', to: '/admin/enquiries', icon: Inbox },
       { label: 'Allocations', to: '/admin/allocations', icon: ClipboardList },
       { label: 'Members', to: '/admin/members', icon: Users },
       { label: 'Leave', to: '/admin/leave', icon: CalendarX },
