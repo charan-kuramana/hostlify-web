@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileSignature, RotateCcw, Save, ShieldCheck } from 'lucide-react'
 import { getAadhaarSetup, getAgreementTemplate, resetAgreementTemplate, saveAgreementTemplate } from '../../api/compliance'
 import { useToastStore } from '../../store/toastStore'
+import { useAuthStore } from '../../store/authStore'
 
 /** Settings → Compliance: Aadhaar check readiness + the agreement template. */
 export default function ComplianceSettingsPanel({ hostelId }: { hostelId: number }) {
@@ -40,6 +41,8 @@ export default function ComplianceSettingsPanel({ hostelId }: { hostelId: number
 function TemplateEditor({ hostelId, tpl }: { hostelId: number; tpl: any }) {
   const qc = useQueryClient()
   const { show } = useToastStore()
+  const { subRole } = useAuthStore()
+  const canEdit = !subRole || ['OWNER', 'ADMIN', 'MANAGER'].includes(subRole)
   const ref = useRef<HTMLTextAreaElement>(null)
   const [title, setTitle] = useState<string>(tpl.title)
   const [body, setBody] = useState<string>(tpl.body)
@@ -82,6 +85,9 @@ function TemplateEditor({ hostelId, tpl }: { hostelId: number; tpl: any }) {
       </div>
       <textarea ref={ref} value={body} onChange={(e) => setBody(e.target.value)} rows={18} maxLength={30000} className={inputCls + ' font-mono text-xs leading-relaxed'} />
       <p className="text-[11px] text-gray-400">This template is a practical starting point, not legal advice. Some states require stamp duty or registration for leave-and-licence agreements (e.g. Maharashtra), so check local rules.</p>
+      {!canEdit ? (
+        <p className="text-xs bg-gray-50 text-gray-500 px-3 py-2 rounded-xl">Only the owner, admin or manager can change the agreement template.</p>
+      ) : (
       <div className="flex gap-2">
         <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold brand-gradient disabled:opacity-60">
           <Save size={14} /> {saveMut.isPending ? 'Saving…' : 'Save template'}
@@ -90,6 +96,7 @@ function TemplateEditor({ hostelId, tpl }: { hostelId: number; tpl: any }) {
           <RotateCcw size={14} /> Reset to standard
         </button>
       </div>
+      )}
     </div>
   )
 }

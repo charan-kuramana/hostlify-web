@@ -67,8 +67,9 @@ export default function Enquiries() {
   }
 
   const tabs: [string, string][] = [
-    ['OPEN', `Open (${openCount})`], ['NEW', `New (${counts.NEW ?? 0})`], ['VISIT_SCHEDULED', `Visits (${counts.VISIT_SCHEDULED ?? 0})`],
-    ['WAITLIST', `Waitlist (${counts.WAITLIST ?? 0})`], ['JOINED', `Joined (${counts.JOINED ?? 0})`], ['ALL', 'All'],
+    ['OPEN', `Open (${openCount})`], ['NEW', `New (${counts.NEW ?? 0})`], ['CONTACTED', `Contacted (${counts.CONTACTED ?? 0})`],
+    ['VISIT_SCHEDULED', `Visits (${counts.VISIT_SCHEDULED ?? 0})`], ['WAITLIST', `Waitlist (${counts.WAITLIST ?? 0})`],
+    ['JOINED', `Joined (${counts.JOINED ?? 0})`], ['LOST', `Lost (${counts.LOST ?? 0})`], ['ALL', 'All'],
   ]
 
   return (

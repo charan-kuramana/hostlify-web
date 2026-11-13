@@ -57,9 +57,14 @@ export default function ChecklistEditor({ checklist, moveIn, onClose, onSaved }:
         </div>
 
         <div className="p-6 space-y-5">
-          {checklist.residentComment && (
+          {checklist.status === 'DISPUTED' && checklist.residentComment ? (
             <div className="bg-amber-50 text-amber-800 text-sm rounded-xl px-4 py-3"><b>Resident's concern:</b> {checklist.residentComment}</div>
-          )}
+          ) : checklist.concernHistory ? (
+            <div className="bg-gray-50 text-gray-600 text-sm rounded-xl px-4 py-3">
+              <b>Concerns raised earlier:</b>
+              {String(checklist.concernHistory).split('\n').map((line: string, i: number) => <p key={i} className="mt-1">{line}</p>)}
+            </div>
+          ) : null}
           <div className="space-y-2">
             {items.map((it, i) => (
               <div key={it.key} className="border border-gray-100 rounded-xl p-3">
