@@ -15,12 +15,16 @@ import {
   BedDouble,
   HeartHandshake,
   FileCheck,
+  DoorOpen,
+  Package,
+  LogOut,
+  Siren,
 } from 'lucide-react'
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import PortalLayout, { type NavEntry, type NavItem } from './PortalLayout'
 import { useAuthStore } from '../store/authStore'
-import { getMyBooking } from '../api/hosteller'
+import { getMyBooking, getMyBookingRequest } from '../api/hosteller'
 import { refreshAuthToken } from '../api/auth'
 
 // Grouped to keep the sidebar uncluttered. All routes are unchanged.
@@ -42,6 +46,10 @@ const navItems: NavEntry[] = [
       { label: 'My Documents', to: '/app/documents', icon: FileCheck },
       { label: 'Complaints', to: '/app/complaints', icon: MessageSquare },
       { label: 'Leave', to: '/app/leave', icon: CalendarX },
+      { label: 'Visitors', to: '/app/visitors', icon: DoorOpen },
+      { label: 'Parcels', to: '/app/parcels', icon: Package },
+      { label: 'Check-out', to: '/app/checkout', icon: LogOut },
+      { label: 'Safety & help', to: '/app/safety', icon: Siren },
       { label: 'My Profile', to: '/app/profile', icon: User },
     ],
   },
@@ -49,7 +57,7 @@ const navItems: NavEntry[] = [
     label: 'Services',
     icon: HeartHandshake,
     children: [
-      { label: 'Menu', to: '/app/menu', icon: UtensilsCrossed },
+      { label: 'Menu & Meals', to: '/app/menu', icon: UtensilsCrossed },
       { label: 'Cleaning', to: '/app/cleaning', icon: SprayCan },
       { label: 'Vehicle Parking', to: '/app/parking', icon: Car },
       { label: 'Other Services', to: '/app/service', icon: Wrench },
@@ -100,7 +108,18 @@ function useStaySync() {
   }, [booking?.id, booking?.hostelId])
 }
 
+const OPEN_REQUEST = ['PENDING_APPROVAL', 'REASSIGNED']
+
 export default function AppLayout() {
   useStaySync()
-  return <PortalLayout navItems={navItems} portalName="Hosteller" bottomNav={bottomNav} profilePath="/app/profile" />
+  const { bookingId } = useAuthStore()
+  // "Booking Status" matters only while looking for a bed: hide it for a resident with a stay and no open request
+  const { data: request } = useQuery({ queryKey: ['my-booking-request'], queryFn: getMyBookingRequest, retry: false, staleTime: 60000, enabled: !!bookingId })
+  const showBookingStatus = !bookingId || OPEN_REQUEST.includes(request?.status)
+  const items = navItems.map((e) => 'children' in e
+    ? { ...e, children: e.children.filter((c) => (c.to !== '/app/booking-status' || showBookingStatus) && (c.to !== '/app/checkout' || !!bookingId)) }
+    : e)
+  // Living somewhere: SOS replaces Discover in the phone's bottom bar so it's one tap away
+  const tabs = bookingId ? [bottomNav[0], bottomNav[2], { label: 'SOS', to: '/app/safety', icon: Siren }, bottomNav[3]] : bottomNav
+  return <PortalLayout navItems={items} portalName="Hosteller" bottomNav={tabs} profilePath="/app/profile" />
 }

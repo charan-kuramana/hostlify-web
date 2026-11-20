@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, BarChart3, MapPin, MessageSquare, UserCircle } from 'lucide-react'
+import { LayoutDashboard, Users, BarChart3, MapPin, MessageSquare, UserCircle, Tag } from 'lucide-react'
 import PortalLayout, { type NavEntry, type NavItem } from './PortalLayout'
 
 const navItems: NavEntry[] = [
@@ -7,6 +7,7 @@ const navItems: NavEntry[] = [
   { label: 'Revenue',    to: '/super-admin/revenue',    icon: BarChart3 },
   { label: 'Occupancy',  to: '/super-admin/occupancy',  icon: MapPin },
   { label: 'Complaints', to: '/super-admin/complaints', icon: MessageSquare },
+  { label: 'Plans & Pricing', to: '/super-admin/pricing', icon: Tag },
   { label: 'My Account', to: '/super-admin/account',    icon: UserCircle },
 ]
 

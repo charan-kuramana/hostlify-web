@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, ClipboardCheck, Download, FileSignature, Wallet, X } from 'lucide-react'
+import { CheckCircle2, ClipboardCheck, Download, FileSignature, X } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import Badge from '../../components/ui/Badge'
 import AadhaarVerifyCard from '../../components/compliance/AadhaarVerifyCard'
+import ResidentDepositCard from '../../components/compliance/ResidentDepositCard'
 import { acceptAgreement, agreementPdfPath, checklistPdfPath, getMyDocuments, requestAgreementOtp, respondChecklist, settlementPdfPath } from '../../api/compliance'
-import { blobErrorMessage, downloadPdf, inr } from '../../lib/payments'
+import { blobErrorMessage, downloadPdf } from '../../lib/payments'
 import { useToastStore } from '../../store/toastStore'
 
 const fmt = (d?: string) => (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '')
@@ -74,24 +75,8 @@ export default function MyDocuments() {
         )}
       </div>
 
-      {settlements.length > 0 && (
-        <div className={card}>
-          <div className="flex items-center gap-2 mb-3"><Wallet size={17} className="text-emerald-600" /><p className="font-bold text-gray-800 text-sm">Deposit settlement</p></div>
-          {settlements.map((s) => (
-            <div key={s.id} className="border border-gray-100 rounded-xl p-3 space-y-1 text-sm">
-              <div className="flex justify-between"><span className="text-gray-500">Deposit held</span><span>{inr(s.depositHeld)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Unpaid dues adjusted</span><span>− {inr(s.unpaidDues)}</span></div>
-              {(s.deductions ?? []).map((d: any, i: number) => <div key={i} className="flex justify-between"><span className="text-gray-500">{d.label}</span><span>− {inr(d.amount)}</span></div>)}
-              <div className="flex justify-between font-bold pt-1 border-t border-gray-100">
-                <span>{Number(s.balanceDue) > 0 ? 'You still owe' : s.status === 'REFUNDED' ? 'Refunded to you' : 'Refund due to you'}</span>
-                <span>{inr(Number(s.balanceDue) > 0 ? s.balanceDue : s.refundAmount)}</span>
-              </div>
-              {s.notes && <p className="text-xs text-gray-500">{s.notes}</p>}
-              <button onClick={() => pdf(settlementPdfPath(s.id), `Deposit-settlement-${s.id}.pdf`)} className="mt-2 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600"><Download size={13} /> PDF</button>
-            </div>
-          ))}
-        </div>
-      )}
+      <ResidentDepositCard pending={data.pendingDeposits ?? []} settlements={settlements} onChanged={refresh}
+        onPdf={(id) => pdf(settlementPdfPath(id), `Deposit-settlement-${id}.pdf`)} />
 
       {reading && <AcceptAgreementModal agreement={reading} onClose={() => setReading(null)} onDone={() => { setReading(null); refresh() }} />}
       {viewing && <ChecklistReview checklist={viewing} onClose={() => setViewing(null)} onDone={() => { setViewing(null); refresh() }} onPdf={() => pdf(checklistPdfPath(viewing.id), 'checklist.pdf')} />}

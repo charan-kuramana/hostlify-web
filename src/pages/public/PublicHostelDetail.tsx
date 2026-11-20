@@ -117,7 +117,7 @@ export default function PublicHostelDetail() {
                 {freeBeds > 0 ? `${freeBeds} bed${freeBeds !== 1 ? 's' : ''} available` : 'Currently full'}
               </span>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mt-2 tracking-tight">{h.name}</h1>
+            <h1 className="text-2xl font-bold text-gray-900 mt-2 tracking-tight">{h.name} {h.premium && <span className="ml-1 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 align-middle" title="Verified partner hostel on Hostlify">★ Premium</span>}</h1>
             <p className="text-sm text-gray-500 flex items-start gap-1 mt-1"><MapPin size={14} className="mt-0.5 shrink-0" /> {address}{h.landmark ? ` (near ${h.landmark})` : ''}</p>
             <p className="mt-3 text-lg font-bold text-gray-900">{inr(minRent)}<span className="text-sm font-normal text-gray-400"> /month onwards</span></p>
             {h.about && <p className="text-sm text-gray-600 mt-3 whitespace-pre-line leading-relaxed">{h.about}</p>}

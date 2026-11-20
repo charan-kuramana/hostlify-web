@@ -29,6 +29,8 @@ interface ProfileForm {
   gender: string
   userType: string
   companyCollege: string
+  bloodGroup: string
+  medicalNotes: string
   permanentAddress: string
   city: string
   pincode: string
@@ -55,7 +57,7 @@ export default function MyProfile() {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<ProfileForm>({
     firstName: '', lastName: '', email: '', mobile: '', altMobile: '',
-    dateOfBirth: '', gender: '', userType: '', companyCollege: '',
+    dateOfBirth: '', gender: '', userType: '', companyCollege: '', bloodGroup: '', medicalNotes: '',
     permanentAddress: '', city: '', pincode: '', idProofType: '', idProofNumber: '',
   })
 
@@ -127,6 +129,8 @@ export default function MyProfile() {
         gender:           profile.gender ?? '',
         userType:         profile.userType ?? '',
         companyCollege:   profile.companyCollege ?? '',
+        bloodGroup:       profile.bloodGroup ?? '',
+        medicalNotes:     profile.medicalNotes ?? '',
         permanentAddress: profile.permanentAddress ?? '',
         city:             profile.city ?? '',
         pincode:          profile.pincode ?? '',
@@ -327,6 +331,25 @@ export default function MyProfile() {
                 <input className={inputCls} maxLength={200} value={form.companyCollege} onChange={field('companyCollege')} placeholder="Your company or college" />
               ) : (
                 <p className="text-sm text-gray-800 font-medium py-2.5">{form.companyCollege || '—'}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Blood group</label>
+              {editing ? (
+                <select className={inputCls} value={form.bloodGroup} onChange={field('bloodGroup')}>
+                  <option value="">Not set</option>
+                  {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
+              ) : (
+                <p className="text-sm text-gray-800 font-medium py-2.5">{form.bloodGroup || '—'}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Allergies / medical notes</label>
+              {editing ? (
+                <input className={inputCls} maxLength={300} value={form.medicalNotes} onChange={field('medicalNotes')} placeholder="Only what staff should know in an emergency" />
+              ) : (
+                <p className="text-sm text-gray-800 font-medium py-2.5">{form.medicalNotes || '—'}</p>
               )}
             </div>
           </div>

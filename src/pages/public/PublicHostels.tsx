@@ -93,7 +93,7 @@ export default function PublicHostels() {
                     <span className="absolute top-2 left-2 text-[11px] font-semibold bg-white/90 text-gray-700 px-2 py-0.5 rounded-full">{HOSTEL_TYPE_LABEL[h.hostelType] ?? h.hostelType}</span>
                   </div>
                   <div className="p-4">
-                    <h2 className="font-bold text-gray-900 group-hover:text-brand-700">{h.name}</h2>
+                    <h2 className="font-bold text-gray-900 group-hover:text-brand-700">{h.name} {h.premium && <span className="ml-1 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 align-middle" title="Verified partner hostel on Hostlify">★ Premium</span>}</h2>
                     <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5"><MapPin size={12} /> {[h.locality || h.landmark, h.city].filter(Boolean).join(', ')}</p>
                     <div className="flex items-end justify-between mt-3">
                       <div>

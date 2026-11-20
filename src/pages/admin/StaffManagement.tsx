@@ -7,6 +7,8 @@ import Badge from '../../components/ui/Badge'
 import { getStaffMembers, createStaffMember, updateStaffMember, deactivateStaffMember, getEmployees, addEmployee, recordSalary, getPayrollSummary, removeEmployee } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
+import { getAttendanceMonth } from '../../api/ops'
+import { downloadPdf, blobErrorMessage } from '../../lib/payments'
 
 // ADMIN must be listed: editing an ADMIN account otherwise silently downgraded it to MANAGER
 const SUB_ROLES = ['ADMIN', 'MANAGER', 'SUPERVISOR', 'RECEPTIONIST', 'SECURITY', 'CLEANER', 'OTHER']
@@ -133,6 +135,23 @@ export default function StaffManagement() {
     enabled: !!activeHostelId && activeTab === 'employees',
   })
   const payrollByEmp: Record<number, any> = Object.fromEntries(((payroll?.employees ?? []) as any[]).map((p) => [p.employeeId, p]))
+  // Attendance-aware salary: absences this month suggest a deduction (Section 5)
+  const { data: attMonth } = useQuery({
+    queryKey: ['attendance-month', activeHostelId, { year: nowD.getFullYear(), month: nowD.getMonth() + 1 }],
+    queryFn: () => getAttendanceMonth(activeHostelId!, nowD.getFullYear(), nowD.getMonth() + 1),
+    enabled: !!activeHostelId && activeTab === 'employees',
+  })
+  const attByEmp: Record<number, any> = Object.fromEntries(((attMonth?.employees ?? []) as any[]).map((a) => [a.employeeId, a]))
+  const [applyDeduction, setApplyDeduction] = useState(true)
+  async function downloadSlip(emp: any) {
+    const rec = payrollByEmp[emp.id]
+    if (!rec?.salaryRecordId) return
+    try {
+      await downloadPdf(`/ops/salary-slip/${rec.salaryRecordId}`, `salary-slip-${(emp.name ?? 'employee').replace(/\s+/g, '-')}-${nowD.getFullYear()}-${nowD.getMonth() + 1}.pdf`)
+    } catch (e) {
+      show('error', 'Could not download the slip', await blobErrorMessage(e, 'Please try again.'))
+    }
+  }
   const inr = (n: any) => '₹' + Number(n ?? 0).toLocaleString('en-IN')
 
   const addEmpMut = useMutation({
@@ -193,9 +212,14 @@ export default function StaffManagement() {
 
   function handleRecordSalary(id: number) {
     const amount = payrollByEmp[id]?.payable ?? confirmEmployee?.baseSalary ?? confirmEmployee?.salary ?? 0
+    const att = attByEmp[id]
+    const deduct = applyDeduction && att && Number(att.suggestedDeduction) > 0 ? Number(att.suggestedDeduction) : 0
     salaryMut.mutate({
       employeeId: id,
-      data: { month: now.getMonth() + 1, year: now.getFullYear(), amount },
+      data: {
+        month: now.getMonth() + 1, year: now.getFullYear(), amount, deductions: deduct,
+        deductionNote: deduct > 0 ? `${att.absentDays} absent day(s)` : undefined,
+      },
     })
   }
 
@@ -598,9 +622,14 @@ export default function StaffManagement() {
                     </div>
                   </div>
                   <div className="flex gap-2 mt-3">
+                    {payrollByEmp[emp.id]?.status === 'PAID' && payrollByEmp[emp.id]?.salaryRecordId && (
+                      <button onClick={() => downloadSlip(emp)} className="flex-1 py-2 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50">
+                        Salary slip
+                      </button>
+                    )}
                     {payrollByEmp[emp.id]?.status !== 'PAID' && (
                       <button
-                        onClick={() => setConfirmSalaryId(emp.id)}
+                        onClick={() => { setApplyDeduction(true); setConfirmSalaryId(emp.id) }}
                         className="flex-1 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90 brand-gradient"
                       >
                         Pay Salary
@@ -667,7 +696,14 @@ export default function StaffManagement() {
               Record {inr(payrollByEmp[confirmEmployee.id]?.payable ?? confirmEmployee.baseSalary ?? 0)} salary payment for{' '}
               <span className="font-semibold text-gray-700">{confirmEmployee.employeeName ?? confirmEmployee.name}</span>?
             </p>
-            <p className="text-xs text-gray-400 mb-6">This will mark their salary as PAID for this month.</p>
+            {Number(attByEmp[confirmEmployee.id]?.suggestedDeduction ?? 0) > 0 && (
+              <label className="flex items-start gap-2 text-sm bg-amber-50 text-amber-800 rounded-xl px-3 py-2 mb-3">
+                <input type="checkbox" checked={applyDeduction} onChange={(e) => setApplyDeduction(e.target.checked)} className="mt-0.5 accent-amber-600" />
+                <span>Deduct {inr(attByEmp[confirmEmployee.id].suggestedDeduction)} for {attByEmp[confirmEmployee.id].absentDays} absent day(s) this month.
+                  Net pay {inr(Number(payrollByEmp[confirmEmployee.id]?.payable ?? confirmEmployee.baseSalary ?? 0) - (applyDeduction ? Number(attByEmp[confirmEmployee.id].suggestedDeduction) : 0))}.</span>
+              </label>
+            )}
+            <p className="text-xs text-gray-400 mb-6">This will mark their salary as PAID for this month. You can then download the salary slip.</p>
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmSalaryId(null)}

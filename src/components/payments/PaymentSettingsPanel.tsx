@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Save, BellRing, AlarmClock, QrCode, FileText, CalendarDays, Mail } from 'lucide-react'
+import { Save, BellRing, AlarmClock, QrCode, FileText, CalendarDays, Mail, Zap } from 'lucide-react'
 import { getEmailStatus, getPaymentSettings, sendTestEmail, updatePaymentSettings } from '../../api/staff'
 import { useToastStore } from '../../store/toastStore'
 import { inr } from '../../lib/payments'
@@ -11,6 +11,7 @@ type Form = {
   reminderDaysBefore: number
   remindOnDueDate: boolean
   overdueReminderIntervalDays: number
+  utilitiesIncluded: boolean
   lateFeeEnabled: boolean
   lateFeeType: 'FLAT' | 'PER_DAY'
   lateFeeAmount: string
@@ -97,6 +98,7 @@ function toForm(data: any): Form {
       reminderDaysBefore: data.reminderDaysBefore ?? 3,
       remindOnDueDate: data.remindOnDueDate ?? true,
       overdueReminderIntervalDays: data.overdueReminderIntervalDays ?? 3,
+      utilitiesIncluded: data.utilitiesIncluded !== false,
       lateFeeEnabled: !!data.lateFeeEnabled,
       lateFeeType: data.lateFeeType ?? 'FLAT',
       lateFeeAmount: data.lateFeeAmount != null && Number(data.lateFeeAmount) > 0 ? String(data.lateFeeAmount) : '',
@@ -182,6 +184,15 @@ function PaymentSettingsForm({ hostelId, data }: { hostelId: number; data: any }
             <input type="number" min={0} max={30} value={f.overdueReminderIntervalDays} onChange={(e) => set('overdueReminderIntervalDays', Number(e.target.value))} className={inputCls} />
           </div>
         </div>
+      </Section>
+
+      <Section icon={Zap} title="Electricity, water & Wi-Fi" desc="Most residents expect these inside the rent. Residents see what you choose on your hostel page and their payments page."
+        right={<Toggle checked={!f.utilitiesIncluded} onChange={(v) => set('utilitiesIncluded', !v)} label="Bill electricity / water separately" />}>
+        <p className="text-sm text-gray-600">
+          {f.utilitiesIncluded
+            ? 'Included in rent. Meter billing and electricity charges are switched off, so residents are never billed for them.'
+            : 'Billed separately. Use Finance → Meter Readings to split each room\'s bill by days stayed, or add an electricity charge to a resident.'}
+        </p>
       </Section>
 
       <Section icon={AlarmClock} title="Late fee" desc="Optional. Residents see the policy on their payments page. Only rent that falls due after you turn this on is charged."

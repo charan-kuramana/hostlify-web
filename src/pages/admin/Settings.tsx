@@ -22,6 +22,7 @@ interface HostelSettings {
   defaultRent: number
   about: string
   latitude: string
+  discoveryRadiusKm: number
   longitude: string
 }
 
@@ -44,7 +45,7 @@ export default function AdminSettings() {
   const [settings, setSettings] = useState<HostelSettings>({
     hostelName: '', address: '', city: '', locality: '',
     type: 'MIXED', contact: '', pincode: '', defaultRent: 0,
-    about: '', latitude: '', longitude: '',
+    about: '', latitude: '', longitude: '', discoveryRadiusKm: 10,
   })
   const [locating, setLocating] = useState(false)
 
@@ -90,6 +91,7 @@ export default function AdminSettings() {
         defaultRent: Number(hostel.defaultRent ?? 0),
         about: hostel.about ?? '',
         latitude: hostel.latitude != null ? String(hostel.latitude) : '',
+        discoveryRadiusKm: hostel.discoveryRadiusKm ?? 10,
         longitude: hostel.longitude != null ? String(hostel.longitude) : '',
       })
     }
@@ -186,6 +188,7 @@ export default function AdminSettings() {
       about: settings.about.trim(),
       latitude: lat || null,
       longitude: lng || null,
+      discoveryRadiusKm: settings.discoveryRadiusKm,
     })
   }
 
@@ -358,6 +361,14 @@ export default function AdminSettings() {
                   <input value={settings.longitude} onChange={(e) => setSettings((s) => ({ ...s, longitude: e.target.value }))} placeholder="Longitude, e.g. 80.6480" inputMode="decimal" className={inputCls} />
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1">Tip: stand at the hostel and tap "Use my current location", or in Google Maps long-press the building and copy the numbers.</p>
+                <div className="flex items-center gap-3 mt-3 flex-wrap">
+                  <label className="text-xs font-semibold text-gray-500">Show my hostel under "Nearby" to people within</label>
+                  <select value={settings.discoveryRadiusKm} onChange={(e) => setSettings((s) => ({ ...s, discoveryRadiusKm: Number(e.target.value) }))}
+                    className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-400">
+                    {[2, 5, 10, 15, 20, 30, 50].map((k) => <option key={k} value={k}>{k} km</option>)}
+                  </select>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">Residents looking for a hostel see yours in the app's Nearby list when they are within this distance. Needs the map location above.</p>
                 {settings.latitude && settings.longitude && !isNaN(+settings.latitude) && !isNaN(+settings.longitude) && (
                   <iframe title="Map preview" className="w-full h-48 rounded-xl border border-gray-100 mt-2" loading="lazy"
                     src={`https://maps.google.com/maps?q=${settings.latitude},${settings.longitude}&z=16&output=embed`} />

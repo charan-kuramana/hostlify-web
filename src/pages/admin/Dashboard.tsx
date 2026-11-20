@@ -5,6 +5,7 @@ import StatCard from '../../components/ui/StatCard'
 import Badge from '../../components/ui/Badge'
 import { getStaffDashboard } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
+import OwnerInsights, { PlanBanner } from '../../components/insights/OwnerInsights'
 
 const inr = (n: number) => '₹' + Number(n ?? 0).toLocaleString('en-IN')
 const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''
@@ -17,7 +18,9 @@ const QUICK_ACTIONS = [
 ]
 
 export default function AdminDashboard() {
-  const { activeHostelId } = useAuthStore()
+  const { activeHostelId, subRole } = useAuthStore()
+  const seesFinance = subRole !== 'SUPERVISOR'
+  const isOwnerOrAdmin = subRole === 'OWNER' || subRole === 'ADMIN'
 
   const { data, isLoading } = useQuery({
     queryKey: ['staffDashboard', activeHostelId],
@@ -74,6 +77,8 @@ export default function AdminDashboard() {
         <h1 className="text-2xl font-bold mt-0.5 tracking-tight">Hostel Operations Overview</h1>
         <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.5)' }}>Today's summary</p>
       </div>
+
+      {isOwnerOrAdmin && <PlanBanner />}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -154,6 +159,8 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {seesFinance && activeHostelId && <OwnerInsights hostelId={activeHostelId} />}
     </div>
   )
 }

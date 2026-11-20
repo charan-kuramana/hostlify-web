@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, Wifi, IndianRupee, CalendarClock, Building2 } from 'lucide-react'
+import { Save, Wifi, IndianRupee, CalendarClock, Building2, ScrollText } from 'lucide-react'
+import PoliciesPanel from '../../components/admin/PoliciesPanel'
 import PageHeader from '../../components/ui/PageHeader'
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
@@ -10,7 +11,7 @@ import {
   getBookingSettings, updateBookingSettings,
 } from '../../api/staff'
 
-type TabType = 'amenities' | 'pricing' | 'booking'
+type TabType = 'amenities' | 'pricing' | 'booking' | 'rules'
 
 const inputCls = 'w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 focus:bg-white transition-colors'
 
@@ -67,7 +68,7 @@ export default function HostelSetup() {
   })
 
   // API fields: roomType, baseRent, depositMonths, lateFee (one tier per room type)
-  const [tiers, setTiers] = useState<{ roomType: string; baseRent: string; depositMonths: string; lateFee: string }[]>([])
+  const [tiers, setTiers] = useState<{ roomType: string; baseRent: string; depositMonths: string; lateFee: string; dailyRent: string; weeklyRent: string; fortnightRent: string }[]>([])
 
   useEffect(() => {
     if (pricingData) {
@@ -78,6 +79,9 @@ export default function HostelSetup() {
               baseRent: String(t.baseRent ?? t.monthlyRent ?? ''),
               depositMonths: String(t.depositMonths ?? 1),
               lateFee: String(t.lateFee ?? 0),
+              dailyRent: t.dailyRent != null ? String(t.dailyRent) : '',
+              weeklyRent: t.weeklyRent != null ? String(t.weeklyRent) : '',
+              fortnightRent: t.fortnightRent != null ? String(t.fortnightRent) : '',
             }))
           : [],
       )
@@ -91,6 +95,10 @@ export default function HostelSetup() {
         baseRent: Number(t.baseRent),
         depositMonths: Number(t.depositMonths || 0),
         lateFee: Number(t.lateFee || 0),
+        // short-stay rates: blank = not offered
+        dailyRent: t.dailyRent === '' ? null : Number(t.dailyRent),
+        weeklyRent: t.weeklyRent === '' ? null : Number(t.weeklyRent),
+        fortnightRent: t.fortnightRent === '' ? null : Number(t.fortnightRent),
       }))),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['hostel-pricing', activeHostelId] })
@@ -119,6 +127,9 @@ export default function HostelSetup() {
     selfBookingEnabled: false,
     requiresAdminApproval: true,
     autoExpireDays: 7,
+    shortStayEnabled: false,
+    shortStayMinDays: 1,
+    shortStayMaxDays: 30,
   })
 
   useEffect(() => {
@@ -127,6 +138,9 @@ export default function HostelSetup() {
         selfBookingEnabled:    bookingSettingsData.selfBookingEnabled ?? false,
         requiresAdminApproval: bookingSettingsData.requiresAdminApproval ?? true,
         autoExpireDays:        bookingSettingsData.autoExpireDays ?? 7,
+        shortStayEnabled:      bookingSettingsData.shortStayEnabled ?? false,
+        shortStayMinDays:      bookingSettingsData.shortStayMinDays ?? 1,
+        shortStayMaxDays:      bookingSettingsData.shortStayMaxDays ?? 30,
       })
     }
   }, [bookingSettingsData])
@@ -147,9 +161,9 @@ export default function HostelSetup() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Hostel Setup" subtitle="Manage amenities, pricing, and booking settings" />
+      <PageHeader title="Hostel Setup" subtitle="Manage amenities, pricing, booking settings, house rules and terms" />
 
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+      <div className="flex flex-wrap gap-1 bg-gray-100 p-1 rounded-xl w-fit">
         <TabButton active={tab === 'amenities'} onClick={() => setTab('amenities')}>
           <span className="flex items-center gap-1.5"><Wifi size={13} /> Amenities</span>
         </TabButton>
@@ -158,6 +172,9 @@ export default function HostelSetup() {
         </TabButton>
         <TabButton active={tab === 'booking'} onClick={() => setTab('booking')}>
           <span className="flex items-center gap-1.5"><CalendarClock size={13} /> Booking</span>
+        </TabButton>
+        <TabButton active={tab === 'rules'} onClick={() => setTab('rules')}>
+          <span className="flex items-center gap-1.5"><ScrollText size={13} /> Rules &amp; terms</span>
         </TabButton>
       </div>
 
@@ -254,12 +271,20 @@ export default function HostelSetup() {
                       <input type="number" min={0} className={inputCls} value={tier.lateFee}
                         onChange={(e) => { const u = [...tiers]; u[i] = { ...u[i], lateFee: e.target.value }; setTiers(u) }} />
                     </div>
+                    {([['dailyRent', 'Per day (₹)'], ['weeklyRent', 'Per 7 days (₹)'], ['fortnightRent', 'Per 15 days (₹)']] as const).map(([k, label]) => (
+                      <div key={k}>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Short stay · {label}</label>
+                        <input type="number" min={0} className={inputCls} value={tier[k]} placeholder="Not offered"
+                          onChange={(e) => { const u = [...tiers]; u[i] = { ...u[i], [k]: e.target.value }; setTiers(u) }} />
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
+              <p className="text-xs text-gray-400 mb-4">Short-stay rates are used only when short stays are on (Booking tab). A stay is priced with the cheapest mix of 15-day, 7-day and daily rates, e.g. 9 days = 1 week + 2 days.</p>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setTiers((t) => [...t, { roomType: '', baseRent: '', depositMonths: '1', lateFee: '0' }])}
+                  onClick={() => setTiers((t) => [...t, { roomType: '', baseRent: '', depositMonths: '1', lateFee: '0', dailyRent: '', weeklyRent: '', fortnightRent: '' }])}
                   className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
                 >
                   + Add Tier
@@ -333,6 +358,32 @@ export default function HostelSetup() {
                 <p className="text-xs text-gray-400 mt-1">Pending requests automatically expire after this many days</p>
               </div>
 
+              <div className="border-t border-gray-100 pt-5 space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={bkSettings.shortStayEnabled}
+                    onChange={(e) => setBkSettings((s) => ({ ...s, shortStayEnabled: e.target.checked }))}
+                    className="w-4 h-4 rounded text-brand-600 focus:ring-brand-400" />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Allow short stays (1 day, 1 week, 15 days …)</p>
+                    <p className="text-xs text-gray-400">Residents pick check-in and check-out dates and pay once for the whole stay, using the per-day / 7-day / 15-day rates in the Pricing tab. No monthly rent is generated for them.</p>
+                  </div>
+                </label>
+                {bkSettings.shortStayEnabled && (
+                  <div className="grid grid-cols-2 gap-3 max-w-xs">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Min days</label>
+                      <input type="number" min={1} max={90} className={inputCls} value={bkSettings.shortStayMinDays}
+                        onChange={(e) => setBkSettings((s) => ({ ...s, shortStayMinDays: Number(e.target.value) }))} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Max days</label>
+                      <input type="number" min={1} max={90} className={inputCls} value={bkSettings.shortStayMaxDays}
+                        onChange={(e) => setBkSettings((s) => ({ ...s, shortStayMaxDays: Number(e.target.value) }))} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={() => saveBookingMut.mutate()}
                 disabled={saveBookingMut.isPending}
@@ -346,6 +397,8 @@ export default function HostelSetup() {
           )}
         </div>
       )}
+
+      {tab === 'rules' && activeHostelId && <PoliciesPanel hostelId={activeHostelId} />}
 
       {/* Placeholder for hostel basic info note */}
       <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 flex items-start gap-3">

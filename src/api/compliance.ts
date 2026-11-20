@@ -41,7 +41,7 @@ export const deleteChecklistPhoto = (photoId: number) => apiClient.delete(`/comp
 export const submitChecklist = (id: number) => apiClient.post(`/compliance/checklists/${id}/submit`).then(d)
 
 export const prepareSettlement = (bookingId: number) => apiClient.post('/compliance/settlements', { bookingId }).then(d)
-export const saveSettlement = (id: number, data: { deductions?: { label: string; amount: number }[]; notes?: string }) =>
+export const saveSettlement = (id: number, data: { deductions?: { label: string; amount: number; note?: string; photoIds?: number[] }[]; notes?: string }) =>
   apiClient.put(`/compliance/settlements/${id}`, data).then(d)
 export const finalizeSettlement = (id: number) => apiClient.post(`/compliance/settlements/${id}/finalize`).then(d)
 export const markSettlementRefunded = (id: number, method: string, reference?: string) =>
@@ -59,3 +59,9 @@ export const respondChecklist = (id: number, response: 'ACKNOWLEDGED' | 'DISPUTE
 export const agreementPdfPath = (id: number) => `/compliance/agreements/${id}/pdf`
 export const checklistPdfPath = (id: number) => `/compliance/checklists/${id}/pdf`
 export const settlementPdfPath = (id: number) => `/compliance/settlements/${id}/pdf`
+
+// Deposit disputes
+export const disputeSettlement = (id: number, reason: string) =>
+  apiClient.post(`/compliance/settlements/${id}/dispute`, { reason }).then(d)
+export const resolveSettlementDispute = (id: number, response: string, waiveAmount?: number) =>
+  apiClient.post(`/compliance/settlements/${id}/dispute/resolve`, { response, waiveAmount }).then(d)

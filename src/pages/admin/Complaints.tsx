@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { MessageSquare, X } from 'lucide-react'
+import { MessageSquare, Timer, X } from 'lucide-react'
+import { SlaChip, SlaTargetsModal, SlaTimeline, StarsRow } from '../../components/complaints/Sla'
 import Badge from '../../components/ui/Badge'
 import PageHeader from '../../components/ui/PageHeader'
 import { getHostelComplaints, resolveComplaint } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
 
-const STATUSES = ['ALL', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']
+const STATUSES = ['ALL', 'OPEN', 'IN_PROGRESS', 'OVERDUE', 'RESOLVED', 'CLOSED']
 
 const AVATAR_COLORS = [
   'bg-brand-500', 'bg-emerald-500', 'bg-purple-500',
@@ -28,10 +29,11 @@ function getInitials(name: string) {
 }
 
 export default function AdminComplaints() {
-  const { activeHostelId } = useAuthStore()
+  const { activeHostelId, subRole } = useAuthStore()
   const queryClient = useQueryClient()
   const { show } = useToastStore()
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [showSla, setShowSla] = useState(false)
   // Complaint open in the detail/resolve modal (pendingStatus = status chosen but not saved yet)
   const [detail, setDetail] = useState<{ c: any; pendingStatus: string } | null>(null)
   const [resolution, setResolution] = useState('')
@@ -60,7 +62,9 @@ export default function AdminComplaints() {
 
   const filtered = statusFilter === 'ALL'
     ? complaints
-    : complaints.filter((c: any) => c.status === statusFilter)
+    : statusFilter === 'OVERDUE'
+      ? complaints.filter((c: any) => c.overdue && c.status !== 'RESOLVED' && c.status !== 'CLOSED')
+      : complaints.filter((c: any) => c.status === statusFilter)
 
   function updateStatus(c: any, status: string) {
     // Resolving/closing asks for resolution notes (visible to the resident); other moves save directly
@@ -89,7 +93,9 @@ export default function AdminComplaints() {
         title="Complaints"
         subtitle="Manage and resolve resident complaints"
         count={filtered.length}
+        action={<button onClick={() => setShowSla(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 bg-white text-gray-700"><Timer size={14} /> Targets</button>}
       />
+      {showSla && activeHostelId && <SlaTargetsModal hostelId={activeHostelId} canEdit={!subRole || ['OWNER', 'ADMIN', 'MANAGER'].includes(subRole)} onClose={() => setShowSla(false)} />}
 
       {/* Status filter pills */}
       <div className="flex flex-wrap gap-2">
@@ -148,6 +154,8 @@ export default function AdminComplaints() {
                   </td>
                   <td className="px-5 py-3.5">
                     <Badge status={c.status} />
+                    <div className="mt-1"><SlaChip c={c} /></div>
+                    {c.residentRating && <div className="mt-1"><StarsRow value={c.residentRating} size={11} /></div>}
                   </td>
                   <td className="px-5 py-3.5">
                     <select
@@ -190,6 +198,11 @@ export default function AdminComplaints() {
               <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
             </div>
             <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-xl p-3">{detail.c.description || 'No description provided.'}</p>
+            <div className="mt-4"><SlaTimeline c={detail.c} /></div>
+            {detail.c.residentRating && (
+              <div className="mt-3 text-sm bg-amber-50 rounded-xl p-3"><StarsRow value={detail.c.residentRating} size={14} />
+                {detail.c.residentFeedback && <p className="text-gray-700 mt-1">"{detail.c.residentFeedback}"</p>}</div>
+            )}
             <div className="mt-4">
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Status</label>
               <select value={detail.pendingStatus} onChange={(e) => setDetail({ ...detail, pendingStatus: e.target.value })}

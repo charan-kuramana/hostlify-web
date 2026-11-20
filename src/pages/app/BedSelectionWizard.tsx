@@ -8,8 +8,13 @@ import {
   getRoomsWithAvailability,
   submitBookingRequest,
   getMyBookingRequest,
+  getMyBooking,
+  getShortStayQuote,
   retryUnless404,
 } from '../../api/hosteller'
+import { CostOfStay, HouseRules } from '../../components/stay/StayTerms'
+
+const normType = (t?: string | null) => (t ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_')
 
 const STEPS = ['Floor', 'Pick a Bed', 'Confirm'] as const
 type Step = 0 | 1 | 2
@@ -181,12 +186,28 @@ function SeatMapStep({ floorId, selectedBed, onSelect }: { floorId: number; sele
 }
 
 // ─── Step 3: Confirm ──────────────────────────────────────────────────────────
-function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, selectedBed, onSuccess }: {
-  hostelId: number; hostelName: string; selectedFloor: any; selectedRoom: any; selectedBed: any; onSuccess: () => void
+function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, selectedBed, shortStay, policies, onSuccess }: {
+  hostelId: number; hostelName: string; selectedFloor: any; selectedRoom: any; selectedBed: any; shortStay?: any; policies?: any; onSuccess: () => void
 }) {
   const today = new Date().toLocaleDateString('en-CA') // local YYYY-MM-DD (toISOString is UTC → "yesterday" before 5:30am IST)
   const [checkInDate, setCheckInDate] = useState(today)
+  const shortOffered = !!shortStay?.enabled
+  const [stayType, setStayType] = useState<'MONTHLY' | 'SHORT'>('MONTHLY')
+  const plusDays = (iso: string, n: number) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
+  const [checkOutDate, setCheckOutDate] = useState(() => plusDays(today, Math.max(1, shortStay?.minDays ?? 1)))
+  const isShort = shortOffered && stayType === 'SHORT'
+  const { data: quote, error: quoteErr } = useQuery({
+    queryKey: ['short-quote', hostelId, selectedBed.id, checkInDate, checkOutDate],
+    queryFn: () => getShortStayQuote(hostelId, selectedBed.id, checkInDate, checkOutDate),
+    enabled: isShort && !!checkInDate && !!checkOutDate, retry: false,
+  })
+  // Moving from another hostel: allowed, but the new hostel can only confirm after check-out there
+  const { data: activeStay } = useQuery({ queryKey: ['my-booking'], queryFn: getMyBooking, retry: false })
   const [notes, setNotes] = useState('')
+  const [agreed, setAgreed] = useState(false)
+  // Cost sheet for this room type (rent the resident will actually be charged)
+  const sheet = (policies?.costSheets ?? []).find((s: any) => normType(s.roomType) === normType(selectedRoom.roomType))
+    ?? ((policies?.costSheets ?? []).length === 1 && !policies.costSheets[0].roomType ? policies.costSheets[0] : undefined)
   const [error, setError] = useState<string | null>(null)
 
   // A new request replaces any pending one (the old bed is released) — warn before that happens.
@@ -197,9 +218,14 @@ function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, select
   const mutation = useMutation({
     mutationFn: () => {
       if (!checkInDate || checkInDate < today) return Promise.reject({ response: { data: { message: 'Check-in date cannot be in the past.' } } })
-      return submitBookingRequest({ hostelId, bedId: selectedBed.id, checkInDate, preferenceNotes: notes.trim() || undefined })
+      if (policies && !agreed) return Promise.reject({ response: { data: { message: 'Please confirm you have read the cost of stay and house rules.' } } })
+      if (activeStay?.id && !window.confirm('You are still staying at your current hostel. Please check out there first (My Stay → Check-out) — '
+        + 'this hostel can confirm your booking only after that. Send the request anyway?')) return Promise.resolve(null)
+      return submitBookingRequest({ hostelId, bedId: selectedBed.id, checkInDate, preferenceNotes: notes.trim() || undefined, acceptTerms: true,
+        ...(isShort ? { stayType: 'SHORT', checkOutDate } : {}) })
     },
-    onSuccess: () => {
+    onSuccess: (r) => {
+      if (r === null) return // cancelled at the warning
       queryClient.invalidateQueries({ queryKey: ['my-booking-request'] })
       queryClient.invalidateQueries({ queryKey: ['floors-availability'] })
       queryClient.invalidateQueries({ queryKey: ['rooms-availability'] })
@@ -218,7 +244,11 @@ function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, select
             { label: 'Floor', value: selectedFloor.floorName ?? selectedFloor.name },
             { label: 'Room', value: selectedRoom.roomName ?? selectedRoom.roomNumber },
             { label: 'Bed', value: selectedBed.bedName ?? selectedBed.bedNumber },
-            ...(selectedRoom.rentAmount != null ? [{ label: 'Monthly Rent', value: inr(selectedRoom.rentAmount) }] : []),
+            ...(isShort
+              ? [{ label: 'Stay', value: quote ? `${quote.days} day${quote.days === 1 ? '' : 's'}` : '—' },
+                 { label: 'Total', value: quote ? inr(quote.amount) : '—' }]
+              : sheet ? [{ label: 'Monthly Rent', value: inr(sheet.monthlyRent) }]
+              : selectedRoom.rentAmount != null ? [{ label: 'Monthly Rent', value: inr(selectedRoom.rentAmount) }] : []),
           ].map(({ label, value }) => (
             <div key={label} className="flex justify-between py-2.5">
               <span className="text-gray-400 font-medium">{label}</span>
@@ -228,11 +258,61 @@ function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, select
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <label className="block text-sm font-semibold text-gray-700 mb-2"><span className="flex items-center gap-1.5"><CalendarDays size={14} /> Check-in Date</span></label>
-        <input type="date" value={checkInDate} min={today} onChange={(e) => setCheckInDate(e.target.value)}
-          className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400" />
+      {shortOffered && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-2 flex gap-1">
+          {(['MONTHLY', 'SHORT'] as const).map((t) => (
+            <button key={t} type="button" onClick={() => setStayType(t)}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold ${stayType === t ? 'brand-gradient text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+              {t === 'MONTHLY' ? 'Monthly stay' : `Short stay (${shortStay.minDays}–${shortStay.maxDays} days)`}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2"><span className="flex items-center gap-1.5"><CalendarDays size={14} /> Check-in Date</span></label>
+          <input type="date" value={checkInDate} min={today} onChange={(e) => { setCheckInDate(e.target.value); if (checkOutDate <= e.target.value) setCheckOutDate(plusDays(e.target.value, 1)) }}
+            className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400" />
+        </div>
+        {isShort && (
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2"><span className="flex items-center gap-1.5"><CalendarDays size={14} /> Check-out Date</span></label>
+            <input type="date" value={checkOutDate} min={checkInDate} onChange={(e) => setCheckOutDate(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400" />
+          </div>
+        )}
+        {isShort && (
+          <p className={`sm:col-span-2 text-xs ${quoteErr ? 'text-red-600' : 'text-gray-500'}`}>
+            {quoteErr ? ((quoteErr as any)?.response?.data?.message ?? 'Could not price this stay')
+              : quote ? `${quote.breakdown} = ${inr(quote.amount)}, paid once for the whole stay.` : 'Calculating…'}
+          </p>
+        )}
       </div>
+
+      {activeStay?.id && (
+        <p className="text-sm text-amber-800 font-medium bg-amber-50 border border-amber-200 px-4 py-3 rounded-xl">
+          You are still staying at your current hostel. You can send this request, but please check out there first
+          (My Stay → Check-out) — this hostel can confirm your bed only after that.
+        </p>
+      )}
+
+      {policies && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+          <div>
+            <h3 className="font-semibold text-gray-800 text-sm mb-2">Cost of stay &amp; terms</h3>
+            <CostOfStay policies={isShort ? { ...policies, costSheets: [] } : policies} sheet={isShort ? undefined : sheet} roomType={isShort ? '—' : undefined} />
+          </div>
+          <div>
+            <h3 className="font-semibold text-gray-800 text-sm mb-2">House rules</h3>
+            <HouseRules policies={policies} />
+          </div>
+          <label className="flex items-start gap-2.5 text-sm text-gray-700 bg-gray-50 rounded-xl px-3.5 py-3 cursor-pointer">
+            <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 w-4 h-4 accent-brand-600" />
+            <span>I've read the cost of stay, notice terms and house rules. They're saved with my booking.</span>
+          </label>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <label className="block text-sm font-semibold text-gray-700 mb-2"><span className="flex items-center gap-1.5"><AlignLeft size={14} /> Preference Notes <span className="font-normal text-gray-400">(optional)</span></span></label>
@@ -253,7 +333,7 @@ function ConfirmStep({ hostelId, hostelName, selectedFloor, selectedRoom, select
 
       {error && <p className="text-sm text-red-500 font-medium bg-red-50 px-4 py-3 rounded-xl">{error}</p>}
 
-      <button onClick={() => mutation.mutate()} disabled={mutation.isPending}
+      <button onClick={() => mutation.mutate()} disabled={mutation.isPending || (!!policies && !agreed)}
         className="w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-60 brand-gradient">
         {mutation.isPending ? 'Submitting...' : replacesPending ? 'Replace My Pending Request' : 'Submit Booking Request'}
       </button>
@@ -320,6 +400,7 @@ export default function BedSelectionWizard() {
 
       {step === 2 && selectedFloor && selectedRoom && selectedBed && (
         <ConfirmStep hostelId={id} hostelName={hostelName} selectedFloor={selectedFloor} selectedRoom={selectedRoom} selectedBed={selectedBed}
+          shortStay={hostel?.shortStay} policies={hostel?.policies}
           onSuccess={() => navigate('/app/booking-status')} />
       )}
     </div>

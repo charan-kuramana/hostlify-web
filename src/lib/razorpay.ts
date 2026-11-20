@@ -33,6 +33,9 @@ export interface CheckoutInfo {
   currency: string
   hostellerName?: string
   description?: string
+  /** Shown as the merchant name in the checkout (the hostel's name for rent). */
+  businessName?: string
+  email?: string
 }
 
 export interface RazorpayResult {
@@ -51,10 +54,10 @@ export async function openRazorpayCheckout(info: CheckoutInfo, opts?: { prefillE
       key: info.keyId,
       amount: info.amountPaise,
       currency: info.currency || 'INR',
-      name: 'Hostlify',
+      name: info.businessName || 'Hostlify',
       description: info.description || 'Hostel rent payment',
       order_id: info.orderId,
-      prefill: { name: info.hostellerName, email: opts?.prefillEmail },
+      prefill: { name: info.hostellerName, email: opts?.prefillEmail ?? info.email },
       theme: { color: '#1d6ea8' },
       handler: (res: RazorpayResult) => resolve(res),
       modal: { ondismiss: () => resolve(null) },

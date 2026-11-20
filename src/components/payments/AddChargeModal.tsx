@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, X } from 'lucide-react'
-import { getMembers } from '../../api/staff'
+import { getMembers, getPaymentSettings } from '../../api/staff'
 import { DUE_TYPE_LABEL, MANUAL_CHARGE_TYPES } from '../../lib/payments'
 
 interface Props {
@@ -22,6 +22,9 @@ const HINTS: Record<string, string> = {
 /** Staff: add mess / electricity / deposit / fine / other charges for one resident or everyone. */
 export default function AddChargeModal({ hostelId, submitting, onSubmit, onClose }: Props) {
   const [dueType, setDueType] = useState<string>('MESS')
+  // Electricity is hidden when the owner chose "included in rent" (Settings → Payments)
+  const { data: paySettings } = useQuery({ queryKey: ['payment-settings', hostelId], queryFn: () => getPaymentSettings(hostelId) })
+  const chargeTypes = MANUAL_CHARGE_TYPES.filter((t) => t !== 'ELECTRICITY' || paySettings?.utilitiesIncluded === false)
   const [scope, setScope] = useState<'one' | 'all'>('one')
   const [hostellerId, setHostellerId] = useState('')
   const [amount, setAmount] = useState('')
@@ -62,7 +65,7 @@ export default function AddChargeModal({ hostelId, submitting, onSubmit, onClose
           <div>
             <label className={labelCls}>Type</label>
             <div className="flex flex-wrap gap-1.5">
-              {MANUAL_CHARGE_TYPES.map((t) => (
+              {chargeTypes.map((t) => (
                 <button key={t} type="button" onClick={() => setDueType(t)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${dueType === t ? 'bg-brand-600 border-brand-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
                   {DUE_TYPE_LABEL[t]}

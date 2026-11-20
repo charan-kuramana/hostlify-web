@@ -5,6 +5,7 @@ import StatCard from '../../components/ui/StatCard'
 import { useAuthStore } from '../../store/authStore'
 import { getMyStay, getHostellerProfile, getCurrentDue, getAnnouncements, getProfileCompletion, retryUnless404, isNotFound } from '../../api/hosteller'
 import ReviewCard from './ReviewCard'
+import PendingFeedback from '../../components/feedback/PendingFeedback'
 
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -96,6 +97,8 @@ export default function Dashboard() {
           {noStay ? 'No active stay yet — find a hostel and request a bed' : `${hostelName} · Room ${roomNumber} · Active Resident`}
         </p>
       </div>
+
+      <PendingFeedback />
 
       {/* Profile completion banner */}
       {profileCompletion && profileCompletion.completionPercent < 100 && (

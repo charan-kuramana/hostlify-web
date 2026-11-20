@@ -6,7 +6,7 @@ import ChecklistEditor from './ChecklistEditor'
 import Badge from '../ui/Badge'
 import {
   agreementPdfPath, checklistPdfPath, finalizeSettlement, getResidentDocuments, markSettlementRefunded, prepareSettlement,
-  previewAgreement, saveSettlement, sendAgreement, settlementPdfPath, startChecklist, voidAgreement,
+  previewAgreement, resolveSettlementDispute, saveSettlement, sendAgreement, settlementPdfPath, startChecklist, voidAgreement,
 } from '../../api/compliance'
 import { blobErrorMessage, downloadPdf, inr } from '../../lib/payments'
 import { useToastStore } from '../../store/toastStore'
@@ -139,32 +139,61 @@ export default function ResidentDocumentsPanel({ hostellerId, residentName }: { 
   )
 }
 
+type Ded = { label: string; amount: string; note: string; photoIds: number[] }
+const fmtDate = (d?: string | null) => (d ? new Date(d.length === 10 ? d + 'T00:00:00' : d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
+
+/** "Short notice: 5 days (Rs. 2500.00)" → amount pre-filled; checklist damage → amount left for staff. */
+function suggestionToDeduction(x: string): Ded {
+  const m = /^(.*) \(Rs\. ([\d.]+)\)$/.exec(x)
+  if (m) return { label: m[1].slice(0, 120), amount: String(Number(m[2])), note: '', photoIds: [] }
+  return { label: ('Damage: ' + x.split(' (')[0]).slice(0, 120), amount: '', note: x.includes('(') ? x.slice(x.indexOf('(') + 1, -1) : '', photoIds: [] }
+}
+
 function SettlementCard({ booking, settlement, isManager, onChanged, onPdf }: {
   booking: any; settlement: any; isManager: boolean; onChanged: () => void; onPdf: (p: string, n: string) => void
 }) {
   const { show } = useToastStore()
   const [s, setS] = useState<any | null>(settlement && settlement.status === 'DRAFT' ? null : settlement)
-  const [deductions, setDeductions] = useState<{ label: string; amount: string }[]>([])
+  const [deductions, setDeductions] = useState<Ded[]>([])
   const [notes, setNotes] = useState('')
   const [refund, setRefund] = useState({ method: 'UPI', reference: '' })
+  const [picking, setPicking] = useState<number | null>(null)
+  const [reply, setReply] = useState({ response: '', waive: '' })
   const err = (e: any, f: string) => show('error', 'Failed', e?.response?.data?.message ?? f)
-  const load = (x: any) => { setS(x); setDeductions((x.deductions ?? []).map((d: any) => ({ label: d.label, amount: String(d.amount) }))); setNotes(x.notes ?? '') }
+  const load = (x: any) => {
+    setS(x)
+    setDeductions((x.deductions ?? []).map((d: any) => ({ label: d.label, amount: String(d.amount), note: d.note ?? '', photoIds: d.photoIds ?? [] })))
+    setNotes(x.notes ?? '')
+  }
+  const payload = (all: boolean) => ({
+    deductions: deductions.filter((d) => d.label.trim() || (all && d.amount)).map((d) => ({
+      label: d.label.trim(), amount: Number(d.amount), note: d.note.trim() || undefined, photoIds: d.photoIds.length ? d.photoIds : undefined,
+    })),
+    notes,
+  })
+  const setDed = (i: number, patch: Partial<Ded>) => setDeductions((x) => x.map((y, j) => (j === i ? { ...y, ...patch } : y)))
 
   const openMut = useMutation({ mutationFn: () => prepareSettlement(booking.id), onSuccess: load, onError: (e) => err(e, 'Could not open the settlement.') })
   const saveMut = useMutation({
-    mutationFn: () => saveSettlement(s.id, { deductions: deductions.filter((d) => d.label.trim() || d.amount).map((d) => ({ label: d.label.trim(), amount: Number(d.amount) })), notes }),
+    mutationFn: () => saveSettlement(s.id, payload(true)),
     onSuccess: (x) => { load(x); show('success', 'Saved') }, onError: (e) => err(e, 'Could not save.'),
   })
   const finalizeMut = useMutation({
-    mutationFn: async () => { await saveSettlement(s.id, { deductions: deductions.filter((d) => d.label.trim()).map((d) => ({ label: d.label.trim(), amount: Number(d.amount) })), notes }); return finalizeSettlement(s.id) },
+    mutationFn: async () => { await saveSettlement(s.id, payload(false)); return finalizeSettlement(s.id) },
     onSuccess: (x) => { load(x); onChanged(); show('success', 'Settlement finalized', 'Dues were adjusted and the resident has been notified.') }, onError: (e) => err(e, 'Could not finalize.'),
   })
   const refundMut = useMutation({ mutationFn: () => markSettlementRefunded(s.id, refund.method, refund.reference), onSuccess: (x) => { load(x); onChanged(); show('success', 'Refund recorded') }, onError: (e) => err(e, 'Could not record refund.') })
+  const replyMut = useMutation({
+    mutationFn: () => resolveSettlementDispute(s.id, reply.response.trim(), reply.waive ? Number(reply.waive) : undefined),
+    onSuccess: (x) => { load(x); onChanged(); show('success', 'Reply sent to the resident') }, onError: (e) => err(e, 'Could not send the reply.'),
+  })
 
   const draft = s?.status === 'DRAFT'
   const dedTotal = deductions.reduce((t, d) => t + (Number(d.amount) || 0), 0)
   const net = s ? Number(s.depositHeld) - Number(s.unpaidDues) - dedTotal : 0
   const inputCls = 'px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white'
+  const photos: any[] = s?.evidencePhotos ?? []
+  const photoById: Record<number, any> = Object.fromEntries(photos.map((p) => [p.id, p]))
 
   return (
     <div className={card}>
@@ -173,6 +202,11 @@ function SettlementCard({ booking, settlement, isManager, onChanged, onPdf }: {
         <div className="flex-1">
           <p className="font-bold text-gray-800 text-sm">Deposit settlement</p>
           <p className="text-xs text-gray-400 mt-0.5">At checkout: deposit − unpaid dues − deductions = refund. {booking.status === 'ACTIVE' ? 'Resident is still checked in.' : 'Resident has checked out.'}</p>
+          {s?.refundDueBy && s.status !== 'REFUNDED' && (
+            <p className={`text-xs mt-1 font-semibold ${s.refundOverdue ? 'text-red-600' : 'text-amber-700'}`}>
+              {s.refundOverdue ? `Overdue: refund was due by ${fmtDate(s.refundDueBy)}` : `Settle and refund by ${fmtDate(s.refundDueBy)}`}
+            </p>
+          )}
         </div>
         {s && <Badge status={s.status === 'DRAFT' ? 'DRAFT' : s.status === 'REFUNDED' ? 'PAID' : 'APPROVED'} />}
       </div>
@@ -188,26 +222,53 @@ function SettlementCard({ booking, settlement, isManager, onChanged, onPdf }: {
           <div className="rounded-xl bg-gray-50 divide-y divide-gray-100 text-sm">
             <Row l="Deposit held" v={inr(s.depositHeld)} />
             <Row l="Unpaid dues" v={'− ' + inr(s.unpaidDues)} sub={(s.openDues ?? []).map((d: any) => `${d.label}: ${inr(d.outstanding)}`).join(' · ')} />
-            {!draft && (s.deductions ?? []).map((d: any, i: number) => <Row key={i} l={d.label} v={'− ' + inr(d.amount)} />)}
+            {!draft && (s.deductions ?? []).map((d: any, i: number) => (
+              <Row key={i} l={d.label} v={'− ' + inr(d.amount)}
+                sub={[d.note, d.photoIds?.length ? `${d.photoIds.length} photo${d.photoIds.length > 1 ? 's' : ''} attached` : ''].filter(Boolean).join(' · ')} />
+            ))}
+            {Number(s.waivedAmount) > 0 && <Row l="Given up after the resident's query" v={'+ ' + inr(s.waivedAmount)} />}
           </div>
 
           {draft && (
             <>
               {(s.damageSuggestions ?? []).length > 0 && (
                 <div className="text-xs bg-amber-50 text-amber-800 rounded-xl px-3 py-2">
-                  From the move-out checklist: {s.damageSuggestions.join(', ')}.
-                  <button onClick={() => setDeductions((d) => [...d, ...s.damageSuggestions.map((x: string) => ({ label: 'Damage: ' + x.split(' (')[0], amount: '' }))])}
+                  Suggested from the move-out checklist and check-out notice: {s.damageSuggestions.join(', ')}.
+                  <button onClick={() => setDeductions((d) => [...d, ...s.damageSuggestions.map(suggestionToDeduction)])}
                     className="ml-1 font-semibold underline">Add as deductions</button>
                 </div>
               )}
               {deductions.map((d, i) => (
-                <div key={i} className="flex gap-2">
-                  <input value={d.label} onChange={(e) => setDeductions((x) => x.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)))} placeholder="Reason, e.g. Mirror replacement" className={inputCls + ' flex-1'} maxLength={120} />
-                  <input value={d.amount} onChange={(e) => setDeductions((x) => x.map((y, j) => (j === i ? { ...y, amount: e.target.value } : y)))} placeholder="₹" type="number" min={1} className={inputCls + ' w-28'} />
-                  <button onClick={() => setDeductions((x) => x.filter((_, j) => j !== i))} aria-label="Remove" className="text-gray-300 hover:text-red-500"><Trash2 size={15} /></button>
+                <div key={i} className="border border-gray-100 rounded-xl p-2.5 space-y-2">
+                  <div className="flex gap-2">
+                    <input value={d.label} onChange={(e) => setDed(i, { label: e.target.value })} placeholder="Reason, e.g. Mirror replacement" className={inputCls + ' flex-1 min-w-0'} maxLength={120} />
+                    <input value={d.amount} onChange={(e) => setDed(i, { amount: e.target.value })} placeholder="₹" type="number" min={1} className={inputCls + ' w-24'} />
+                    <button onClick={() => setDeductions((x) => x.filter((_, j) => j !== i))} aria-label="Remove" className="text-gray-300 hover:text-red-500"><Trash2 size={15} /></button>
+                  </div>
+                  <input value={d.note} onChange={(e) => setDed(i, { note: e.target.value })} placeholder="Explain it to the resident (optional), e.g. cracked; was fine at move-in" className={inputCls + ' w-full'} maxLength={300} />
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {d.photoIds.map((pid) => photoById[pid]?.url && <img key={pid} src={photoById[pid].url} alt="" className="w-10 h-10 rounded-lg object-cover border border-gray-100" />)}
+                    {photos.length > 0
+                      ? <button onClick={() => setPicking(picking === i ? null : i)} className="text-xs font-semibold text-brand-600">{d.photoIds.length ? 'Change photos' : '+ Attach checklist photos'}</button>
+                      : <span className="text-[11px] text-gray-400">Add photos in the move-in / move-out checklists to attach them as proof.</span>}
+                  </div>
+                  {picking === i && (
+                    <div className="flex gap-1.5 flex-wrap bg-gray-50 rounded-lg p-2">
+                      {photos.map((p) => {
+                        const on = d.photoIds.includes(p.id)
+                        return (
+                          <button key={p.id} onClick={() => setDed(i, { photoIds: on ? d.photoIds.filter((x) => x !== p.id) : [...d.photoIds, p.id] })}
+                            className={`relative rounded-lg overflow-hidden border-2 ${on ? 'border-brand-500' : 'border-transparent'}`} title={p.caption ?? ''}>
+                            {p.url ? <img src={p.url} alt="" className="w-14 h-14 object-cover" /> : <span className="w-14 h-14 block bg-gray-200" />}
+                            <span className="absolute bottom-0 left-0 right-0 text-[9px] font-bold bg-black/60 text-white">{p.kind === 'MOVE_IN' ? 'MOVE-IN' : 'MOVE-OUT'}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
-              <button onClick={() => setDeductions((x) => [...x, { label: '', amount: '' }])} className="flex items-center gap-1 text-xs font-semibold text-brand-600"><Plus size={13} /> Add deduction</button>
+              <button onClick={() => setDeductions((x) => [...x, { label: '', amount: '', note: '', photoIds: [] }])} className="flex items-center gap-1 text-xs font-semibold text-brand-600"><Plus size={13} /> Add deduction</button>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notes for the resident (optional)" className={inputCls + ' w-full resize-none'} maxLength={1000} />
             </>
           )}
@@ -228,6 +289,29 @@ function SettlementCard({ booking, settlement, isManager, onChanged, onPdf }: {
               )}
             </div>
           )}
+
+          {s.disputeStatus && (
+            <div className={`rounded-xl px-3 py-2.5 text-sm space-y-2 ${s.disputeStatus === 'OPEN' ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'}`}>
+              <p className="text-xs font-bold uppercase tracking-wide text-amber-700">{s.disputeStatus === 'OPEN' ? 'Resident disagrees' : 'Dispute answered'}</p>
+              <p className="text-gray-700">"{s.disputeReason}"</p>
+              {s.disputeStatus === 'RESOLVED' && <p className="text-gray-600 text-xs"><b>Your reply:</b> {s.disputeResponse}</p>}
+              {s.disputeStatus === 'OPEN' && isManager && (
+                <div className="space-y-2">
+                  <textarea value={reply.response} onChange={(e) => setReply((r) => ({ ...r, response: e.target.value }))} rows={2} maxLength={1000}
+                    placeholder="Reply to the resident (they'll be notified)" className={inputCls + ' w-full resize-none'} />
+                  {s.status === 'FINALIZED' && Number(s.balanceDue) === 0 && (
+                    <label className="flex items-center gap-2 text-xs text-gray-600">Give up ₹
+                      <input type="number" min={0} value={reply.waive} onChange={(e) => setReply((r) => ({ ...r, waive: e.target.value }))} className={inputCls + ' w-24 py-1'} />
+                      of the deductions (added to the refund)
+                    </label>
+                  )}
+                  <button onClick={() => replyMut.mutate()} disabled={replyMut.isPending || reply.response.trim().length < 5}
+                    className={`${btn} text-white brand-gradient py-2 disabled:opacity-50`}>{replyMut.isPending ? 'Sending…' : 'Send reply'}</button>
+                </div>
+              )}
+            </div>
+          )}
+
           {s.status === 'FINALIZED' && Number(s.refundAmount) > 0 && isManager && (
             <div className="flex gap-2 flex-wrap items-center">
               <select value={refund.method} onChange={(e) => setRefund((r) => ({ ...r, method: e.target.value }))} className={inputCls}>

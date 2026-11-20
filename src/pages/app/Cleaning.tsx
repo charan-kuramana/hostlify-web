@@ -7,6 +7,7 @@ import { getMyCleaning, requestCleaning, cancelCleaning } from '../../api/hostel
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
 import NoStay from './NoStay'
+import MyRoomCleaning from '../../components/housekeeping/MyRoomCleaning'
 
 const todayStr = () => new Date().toLocaleDateString('en-CA') // local YYYY-MM-DD
 
@@ -93,7 +94,7 @@ export default function Cleaning() {
     <div className="space-y-6">
       <PageHeader
         title="Cleaning Requests"
-        subtitle="Request room cleaning service"
+        subtitle="Your room's cleaning schedule, and extra cleaning on request"
         count={cleaningList.length}
         action={
           <button
@@ -105,6 +106,8 @@ export default function Cleaning() {
           </button>
         }
       />
+
+      <MyRoomCleaning />
 
       {/* New Request Form */}
       {showForm && (

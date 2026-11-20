@@ -6,7 +6,8 @@ import PageHeader from '../../components/ui/PageHeader'
 import StatCard from '../../components/ui/StatCard'
 import PushToggle from '../../components/common/PushToggle'
 import UpiPayModal from '../../components/payments/UpiPayModal'
-import { getCurrentDue, getDuesHistory, getMyPaymentRecords, getMyPaymentSettings, initiateRazorpay, submitUpiClaim, verifyRazorpay } from '../../api/hosteller'
+import { getCurrentDue, getDuesHistory, getMyPaymentRecords, getMyPaymentSettings, submitUpiClaim } from '../../api/hosteller'
+import { getOnlineOptions, startOnlinePayment, verifyOnlinePayment, type GatewayProvider, type OnlineOption } from '../../api/gateways'
 import { getHostel } from '../../api/staff'
 import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
@@ -19,6 +20,7 @@ function fmtDate(d?: string) {
 }
 const isUnpaid = (s: string) => s === 'UNPAID' || s === 'PARTIAL' || s === 'OVERDUE'
 const todayStr = () => new Date().toISOString().slice(0, 10)
+const METHOD_LABEL: Record<string, string> = { RAZORPAY: 'Razorpay', STRIPE: 'Stripe', PAYPAL: 'PayPal' }
 
 function Spinner() {
   return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 rounded-full border-4 border-brand-200 border-t-brand-600 animate-spin" /></div>
@@ -43,7 +45,10 @@ export default function MyDues() {
   const { show } = useToastStore()
 
   const { data: hostelInfo } = useQuery({ queryKey: ['hostel-info', hostelId], queryFn: () => getHostel(hostelId!), enabled: !!hostelId })
-  const onlinePaymentEnabled = hostelInfo?.onlinePaymentEnabled !== false
+  // Online payment goes to the hostel owner's own gateway account(s); none connected = no online option
+  const { data: onlineOptions = [] } = useQuery<OnlineOption[]>({ queryKey: ['online-options'], queryFn: getOnlineOptions, retry: false })
+  const onlinePaymentEnabled = hostelInfo?.onlinePaymentEnabled !== false && onlineOptions.length > 0
+  const [chooseFor, setChooseFor] = useState<any>(null)
   const { data: paySettings } = useQuery({ queryKey: ['my-payment-settings'], queryFn: getMyPaymentSettings, retry: false })
   const upiId: string | undefined = paySettings?.upiId ?? undefined
 
@@ -68,34 +73,58 @@ export default function MyDues() {
     queryClient.invalidateQueries({ queryKey: ['my-records'] })
   }
 
-  async function payOnline(due: any) {
+  function showPaid(details: any, title: string) {
+    refresh()
+    setSuccessInfo({
+      amount: details?.amount, paymentId: details?.paymentId, method: METHOD_LABEL[details?.method] ?? details?.method,
+      paymentDate: details?.paymentDate, recordId: details?.recordId, title,
+    })
+  }
+
+  // Back from Stripe / PayPal: /app/dues?pay=<orderRef>[&cancelled=1]
+  const [returnHandled] = useState(() => {
+    const qs = new URLSearchParams(window.location.search)
+    const ref = qs.get('pay')
+    if (!ref) return true
+    window.history.replaceState(null, '', window.location.pathname)
+    if (qs.get('cancelled')) { setTimeout(() => show('info', 'Payment cancelled', 'Nothing was charged.'), 0); return true }
+    verifyOnlinePayment({ orderRef: Number(ref) })
+      .then((d) => d?.status === 'PAID' ? showPaid(d, 'Payment')
+        : show(d?.status === 'FAILED' ? 'error' : 'info', d?.status === 'FAILED' ? 'Payment failed' : 'Payment processing', d?.message ?? ''))
+      .catch((e) => show('error', 'Could not confirm the payment', e?.response?.data?.message ?? 'If money was deducted, it will show here shortly.'))
+    return true
+  })
+  void returnHandled
+
+  async function payOnline(due: any, provider: GatewayProvider) {
+    setChooseFor(null)
     setPayingId(due.id)
     try {
-      const info = await initiateRazorpay(due.id)
+      const info = await startOnlinePayment(due.id, provider)
+      if (info.redirectUrl) { window.location.href = info.redirectUrl; return } // Stripe / PayPal hosted page
       const result = await openRazorpayCheckout({
-        keyId: info.keyId, orderId: info.orderId, amountPaise: info.amountPaise,
-        currency: info.currency, hostellerName: info.hostellerName, description: dueTitle(due),
+        keyId: info.keyId, orderId: info.orderId, amountPaise: info.amountPaise, currency: info.currency,
+        hostellerName: info.payerName, email: info.payerEmail, description: dueTitle(due), businessName: info.businessName,
       })
-      if (!result) { setPayingId(null); return } // dismissed
-      const details = await verifyRazorpay({
+      if (!result) return // dismissed
+      const details = await verifyOnlinePayment({
+        orderRef: info.orderRef,
         razorpayPaymentId: result.razorpay_payment_id,
         razorpayOrderId: result.razorpay_order_id,
         razorpaySignature: result.razorpay_signature,
       })
-      refresh()
-      setSuccessInfo({
-        amount: details?.amount ?? payable(due),
-        paymentId: details?.paymentId ?? result.razorpay_payment_id,
-        method: details?.method ?? 'RAZORPAY',
-        paymentDate: details?.paymentDate,
-        recordId: details?.recordId,
-        title: dueTitle(due),
-      })
+      if (details?.status === 'PAID') showPaid(details, dueTitle(due))
+      else show('info', 'Payment processing', details?.message ?? 'It will show here within a few minutes.')
     } catch (e: any) {
       show('error', 'Payment failed', e?.response?.data?.message ?? e?.message ?? 'Please try again or pay at the hostel.')
     } finally {
       setPayingId(null)
     }
+  }
+
+  function startPay(due: any) {
+    if (onlineOptions.length === 1) payOnline(due, onlineOptions[0].provider)
+    else setChooseFor(due)
   }
 
   async function submitUpi(amount: number, utr: string) {
@@ -143,7 +172,7 @@ export default function MyDues() {
           </button>
         )}
         {onlinePaymentEnabled && (
-          <button onClick={() => payOnline(due)} disabled={payingId === due.id} className={`${cls} text-white brand-gradient hover:opacity-90`}>
+          <button onClick={() => startPay(due)} disabled={payingId === due.id} className={`${cls} text-white brand-gradient hover:opacity-90`}>
             <CreditCard size={compact ? 12 : 16} /> {payingId === due.id ? '…' : compact ? 'Pay' : 'Pay Online'}
           </button>
         )}
@@ -162,10 +191,34 @@ export default function MyDues() {
   return (
     <div className="space-y-6">
       <PageHeader title="My Payments" subtitle="Your rent and other charges, payments and receipts" />
+      {paySettings?.utilitiesIncluded === true && (
+        <p className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5">
+          Electricity, water &amp; Wi-Fi are included in your rent. You won't be charged separately for them.
+        </p>
+      )}
 
       {upiDue && upiId && (
         <UpiPayModal due={upiDue} amount={payable(upiDue)} upiId={upiId} payeeName={paySettings?.upiPayeeName}
           submitting={upiSubmitting} error={upiErr} onSubmit={submitUpi} onClose={() => setUpiDue(null)} />
+      )}
+
+      {chooseFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setChooseFor(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h2 className="font-bold text-gray-900">Pay {inr(payable(chooseFor))}</h2>
+              <p className="text-xs text-gray-400">{dueTitle(chooseFor)} · goes directly to your hostel</p>
+            </div>
+            {onlineOptions.map((o) => (
+              <button key={o.provider} onClick={() => payOnline(chooseFor, o.provider)}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 hover:border-brand-400 hover:bg-brand-50 text-sm font-semibold text-gray-800">
+                {o.name}
+                <span className="text-[11px] font-normal text-gray-400">{o.provider === 'RAZORPAY' ? 'UPI, cards, netbanking' : o.provider === 'STRIPE' ? 'Cards' : 'PayPal account / cards'}{o.testMode ? ' · test' : ''}</span>
+              </button>
+            ))}
+            <button onClick={() => setChooseFor(null)} className="w-full py-2 text-sm text-gray-500">Cancel</button>
+          </div>
+        </div>
       )}
 
       {/* Payment success receipt */}

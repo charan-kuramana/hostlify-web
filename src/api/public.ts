@@ -11,6 +11,8 @@ export interface PublicHostelCard {
   id: number
   slug: string
   name: string
+  /** Owner is on a paid plan: premium badge + ranked first */
+  premium?: boolean
   hostelType: string
   city: string
   locality?: string
