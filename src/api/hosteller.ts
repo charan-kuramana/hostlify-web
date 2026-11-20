@@ -74,6 +74,14 @@ export const getMyPaymentRecords = () =>
 export const initiateRazorpay = (dueId: number) =>
   apiClient.post('/payment/razorpay/initiate', { dueId }).then((r) => r.data.data)
 
+// How to pay (hostel UPI ID) + the hostel's late-fee policy
+export const getMyPaymentSettings = () =>
+  apiClient.get('/payment/settings/my').then((r) => r.data.data)
+
+// "I paid by UPI" — staff confirm it against the owner's UPI app
+export const submitUpiClaim = (payload: { dueId: number; amount: number; utr: string }) =>
+  apiClient.post('/payment/upi/claim', payload).then((r) => r.data.data)
+
 // Verify the checkout signature server-side and capture the payment
 export const verifyRazorpay = (payload: { razorpayPaymentId: string; razorpayOrderId: string; razorpaySignature: string }) =>
   apiClient.post('/payment/razorpay/verify', payload).then((r) => r.data.data)
@@ -171,6 +179,21 @@ export const getBedsByRoom = (roomId: number) =>
 export const submitBookingRequest = (data: Record<string, unknown>) =>
   apiClient.post('/booking/request', data).then((r) => r.data.data)
 
+export const getShortStayQuote = (hostelId: number, bedId: number, checkIn: string, checkOut: string) =>
+  apiClient.get(`/hostels/${hostelId}/short-stay/quote`, { params: { bedId, checkIn, checkOut } }).then((r) => r.data.data)
+
+/** One search: nearby (each hostel's own radius) when q is empty, otherwise name / area / city; distance when located. */
+export const discoverHostels = (q: string, coords?: { lat: number; lng: number } | null) =>
+  apiClient.get('/hostel/discover', { params: { ...(q ? { q } : {}), ...(coords ? { lat: coords.lat, lng: coords.lng } : {}) } }).then((r) => r.data.data)
+
+// ── Check-out & feedback ──
+export const getMyCheckout = () => apiClient.get('/checkout-requests/my').then((r) => r.data.data)
+export const requestCheckout = (body: { date: string; reason?: string }) => apiClient.post('/checkout-requests/my', body).then((r) => r.data.data)
+export const cancelCheckout = (id: number) => apiClient.post(`/checkout-requests/my/${id}/cancel`).then((r) => r.data.data)
+export const getPendingFeedback = () => apiClient.get('/feedback/pending').then((r) => r.data.data)
+export const submitStayReview = (body: { bookingId: number; rating: number; reviewText?: string }) =>
+  apiClient.post('/reviews', body).then((r) => r.data.data)
+
 export const getMyBookingRequest = () =>
   apiClient.get('/booking/request/my').then((r) => r.data.data)
 
@@ -179,3 +202,17 @@ export const cancelBookingRequest = (id: number) =>
 
 export const getProfileCompletion = () =>
   apiClient.get('/hostellers/profile/completion').then((r) => r.data.data)
+
+// ─── Section 9: notice estimate, safety & help, housekeeping ──────────────────
+export const getCheckoutEstimate = (date?: string) =>
+  apiClient.get('/checkout-requests/my/estimate', { params: date ? { date } : {} }).then((r) => r.data.data)
+export const getMySafety = () => apiClient.get('/safety/my').then((r) => r.data.data)
+export const sendSos = (body: { latitude?: number; longitude?: number; accuracy?: number; message?: string }) =>
+  apiClient.post('/safety/sos', body).then((r) => r.data.data)
+export const markSafe = (id: number) => apiClient.post(`/safety/sos/${id}/safe`).then((r) => r.data.data)
+export const flagUnwell = (body: { note?: string; needs: string[] }) => apiClient.post('/safety/unwell', body).then((r) => r.data.data)
+export const clearUnwell = () => apiClient.delete('/safety/unwell').then((r) => r.data.data)
+export const requestLateEntry = (body: { date: string; time: string; reason: string }) =>
+  apiClient.post('/safety/late-entry', body).then((r) => r.data.data)
+export const cancelLateEntry = (id: number) => apiClient.post(`/safety/late-entry/${id}/cancel`).then((r) => r.data.data)
+export const getMyHousekeeping = () => apiClient.get('/housekeeping/my').then((r) => r.data.data)

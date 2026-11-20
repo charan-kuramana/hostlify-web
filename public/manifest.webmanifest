@@ -1,0 +1,23 @@
+{
+  "name": "Hostlify - Hostel Management",
+  "short_name": "Hostlify",
+  "description": "Rent, dues, complaints, meals, visitors and more for hostel owners, staff and residents.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1d6ea8",
+  "categories": ["business", "productivity", "lifestyle"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "My dues", "url": "/app/dues", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Staff dashboard", "url": "/admin/dashboard", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
+import OwnerPlanCard from '../../components/platform/OwnerPlanCard'
 import { useToastStore } from '../../store/toastStore'
 import {
   getOwnerById,
@@ -444,6 +445,8 @@ export default function OwnerDetail() {
             </div>
           </div>
         </div>
+
+        <OwnerPlanCard ownerId={ownerId} />
 
         {/* Reset Password */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

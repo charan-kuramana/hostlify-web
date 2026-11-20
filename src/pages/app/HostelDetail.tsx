@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft,
   MapPin,
+  Navigation,
   Phone,
   Building2,
   BedDouble,
@@ -17,6 +18,8 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { getHostelDetail, getMyBooking } from '../../api/hosteller'
+import { directionsUrl } from '../../api/gateways'
+import { StayTermsCards } from '../../components/stay/StayTerms'
 
 const AMENITY_META: Record<string, { label: string; icon: React.ReactNode }> = {
   wifi:      { label: 'Wi-Fi',     icon: <Wifi size={14} /> },
@@ -106,6 +109,12 @@ export default function HostelDetail() {
                 <MapPin size={13} className="text-gray-400" />
                 <p className="text-sm text-gray-500">{hostel.address || hostel.city}</p>
               </div>
+              {directionsUrl(hostel) && (
+                <a href={directionsUrl(hostel)!} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-xl text-xs font-semibold text-brand-700 border border-brand-200 hover:bg-brand-50">
+                  <Navigation size={13} /> Get directions
+                </a>
+              )}
               {(hostel.contactPhone ?? hostel.phone) && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <Phone size={13} className="text-gray-400" />
@@ -114,6 +123,18 @@ export default function HostelDetail() {
               )}
             </div>
           </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {hostel.utilitiesIncluded !== false && (
+            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">Electricity, water &amp; Wi-Fi included in rent</span>
+          )}
+          {hostel.shortStay?.enabled && (
+            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-brand-50 text-brand-700">
+              Short stays: {hostel.shortStay.minDays}–{hostel.shortStay.maxDays} days
+              {hostel.shortStay.rates?.length ? ` · from ₹${Math.min(...hostel.shortStay.rates.map((r: any) => Number(r.dailyRent))).toLocaleString('en-IN')}/day` : ''}
+            </span>
+          )}
         </div>
 
         {hostel.about && (
@@ -144,38 +165,15 @@ export default function HostelDetail() {
         </div>
       )}
 
-      {/* Pricing */}
-      {pricing.length > 0 && (
+      {/* Pricing: full cost of stay, notice / lock-in, house rules and safety (falls back to plain pricing) */}
+      {hostel.policies ? <StayTermsCards policies={hostel.policies} /> : pricing.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <h2 className="font-semibold text-gray-800 text-sm mb-3">Pricing</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 rounded-xl">
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide rounded-l-xl">Room Type</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Base Rent</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide rounded-r-xl">Deposit</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {pricing.map((tier: any, i: number) => (
-                  <tr key={i} className="hover:bg-gray-50/70 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-800 capitalize">{tier.roomType?.replace(/_/g, ' ') ?? '—'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-0.5 text-gray-800 font-semibold">
-                        <IndianRupee size={13} className="text-gray-500" />
-                        {tier.baseRent != null ? Number(tier.baseRent).toLocaleString('en-IN') : '—'}
-                        <span className="text-xs text-gray-400 font-normal ml-0.5">/mo</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 text-sm">
-                      {tier.depositMonths != null ? `${tier.depositMonths} month${tier.depositMonths !== 1 ? 's' : ''}` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="text-sm space-y-1">
+            {pricing.map((tier: any, i: number) => (
+              <li key={i} className="flex items-center gap-1"><span className="capitalize">{tier.roomType?.replace(/_/g, ' ')}</span>: <IndianRupee size={12} />{Number(tier.baseRent ?? 0).toLocaleString('en-IN')}/mo</li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -208,19 +206,20 @@ export default function HostelDetail() {
       {/* bottom-16 on mobile: sit above the bottom tab bar (z-40), which used to hide this CTA */}
       <div className="fixed bottom-16 lg:bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 shadow-lg z-30">
         <div className="max-w-screen-xl mx-auto">
-          {activeBooking ? (
-            <p className="text-center text-sm font-semibold text-gray-500 py-2">
-              You already have an active stay{activeBooking.hostelId === id ? ' at this hostel' : ''} — contact your hostel to change beds.
+          {activeBooking && (
+            <p className="text-center text-xs text-amber-700 mb-2">
+              {activeBooking.hostelId === id
+                ? 'You live here now. You can still request a different bed.'
+                : 'You are staying at another hostel. You can book here, but please check out there first so this hostel can confirm.'}
             </p>
-          ) : (
-            <button
-              onClick={() => navigate(`/app/hostel/${hostelId}/book`)}
-              className="w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity hover:opacity-90"
-              style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}
-            >
-              Select Bed &amp; Book
-            </button>
           )}
+          <button
+            onClick={() => navigate(`/app/hostel/${hostelId}/book`)}
+            className="w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity hover:opacity-90"
+            style={{ background: 'linear-gradient(135deg, #1d6ea8, #1a8fd1)' }}
+          >
+            {activeBooking?.hostelId === id ? 'Request a Different Bed' : 'Select Bed & Book'}
+          </button>
         </div>
       </div>
     </div>

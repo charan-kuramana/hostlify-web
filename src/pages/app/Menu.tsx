@@ -4,6 +4,7 @@ import PageHeader from '../../components/ui/PageHeader'
 import { useAuthStore } from '../../store/authStore'
 import { getCurrentMenu, getMenuItems, retryUnless404, isNotFound } from '../../api/hosteller'
 import NoStay from './NoStay'
+import MyMeals from '../../components/mess/MyMeals'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -47,6 +48,7 @@ export default function Menu() {
         <p className="font-semibold text-gray-500 text-sm">No menu available for this week</p>
         <p className="text-xs text-gray-400 mt-1">Check back later when the menu is updated</p>
       </div>
+      <MyMeals />
     </div>
   )
 
@@ -67,6 +69,7 @@ export default function Menu() {
   return (
     <div className="space-y-6">
       <PageHeader title="Weekly Menu" subtitle="Hostel mess schedule for this week" />
+      <MyMeals />
 
       {/* Today's meal hero */}
       {todayRow && (

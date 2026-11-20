@@ -33,6 +33,8 @@ interface PortalLayoutProps {
   bottomNav?: NavItem[]
   /** Where the footer avatar + header avatar link to. */
   profilePath?: string
+  /** Shown above every page's content (e.g. a live SOS alert for staff). */
+  banner?: import('react').ReactNode
 }
 
 const allLeaves = (items: NavEntry[]): NavItem[] =>
@@ -46,7 +48,7 @@ function ContentLoader() {
   )
 }
 
-export default function PortalLayout({ navItems, portalName, bottomNav, profilePath = '/app/profile' }: PortalLayoutProps) {
+export default function PortalLayout({ navItems, portalName, bottomNav, profilePath = '/app/profile', banner }: PortalLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
@@ -228,6 +230,7 @@ export default function PortalLayout({ navItems, portalName, bottomNav, profileP
         {/* Content — inner Suspense so only this region swaps while a page chunk loads (sidebar/header stay put) */}
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-6xl mx-auto px-4 sm:px-5 md:px-8 py-6 md:py-7 pb-24 lg:pb-7">
+            {banner}
             <Suspense fallback={<ContentLoader />}>
               <Outlet />
             </Suspense>

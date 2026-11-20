@@ -1,3 +1,4 @@
+import CleaningBoard from '../../components/housekeeping/CleaningBoard'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { SprayCan, Clock, CheckCircle2 } from 'lucide-react'
@@ -74,6 +75,8 @@ export default function Cleaning() {
         subtitle={`${requests.length} total requests`}
         count={displayed.length}
       />
+
+      {activeHostelId && <CleaningBoard hostelId={activeHostelId} />}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -277,9 +277,11 @@ function DirectAllocationsTab() {
     setSelected(p); setFloorId(null); setRoomId(null); setBedId(''); setRent(''); setAdvance(''); setAllocErr(null)
   }
 
+  const [findInput, setFindInput] = useState('')
+  const [find, setFind] = useState('')
   const { data: pending = [], isLoading } = useQuery({
-    queryKey: ['pendingAllocations', activeHostelId],
-    queryFn: () => getPendingAllocations(activeHostelId!),
+    queryKey: ['pendingAllocations', activeHostelId, find],
+    queryFn: () => getPendingAllocations(activeHostelId!, find || undefined),
     enabled: !!activeHostelId,
   })
 
@@ -310,6 +312,7 @@ function DirectAllocationsTab() {
     // API: hostellerAuthUserId (auth user, not profile id), bedId, checkInDate, monthlyRent (blank = hostel default)
     allocateMut.mutate({
       hostellerAuthUserId: selected.authUserId,
+      applicantContact: selected.mobile ?? selected.email, // proves the desk knows this walk-in applicant
       bedId: Number(bedId),
       checkInDate,
       ...(rent !== '' ? { monthlyRent: Number(rent) } : {}),
@@ -424,6 +427,14 @@ function DirectAllocationsTab() {
           </div>
         </div>
       )}
+
+      <form onSubmit={(e) => { e.preventDefault(); setFind(findInput.trim()) }} className="flex gap-2 flex-wrap items-center">
+        <input value={findInput} onChange={(e) => setFindInput(e.target.value)} placeholder="Walk-in? Enter their mobile number or email"
+          className="flex-1 min-w-[14rem] px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+        <button className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white brand-gradient">Find applicant</button>
+        {find && <button type="button" onClick={() => { setFind(''); setFindInput('') }} className="text-xs text-gray-500">Clear</button>}
+        <p className="w-full text-[11px] text-gray-400">The list shows people who applied to this hostel. Someone who registered at your desk appears once you enter their exact mobile number or email.</p>
+      </form>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">

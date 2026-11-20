@@ -17,6 +17,8 @@ const CONFIG: Record<string, { bg: string; dot: string; text: string; label?: st
   PAID:            { ...GREEN },
   UNPAID:          { ...AMBER },
   OVERDUE:         { ...RED },
+  PARTIAL:         { ...AMBER },
+  PENDING_VERIFICATION: { ...AMBER, label: 'Verifying' },
   SUCCESS:         { ...GREEN },
   FAILED:          { ...RED },
   // Generic lifecycle

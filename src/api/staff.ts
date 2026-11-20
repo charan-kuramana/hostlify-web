@@ -49,8 +49,9 @@ export const createBed = (roomId: number, data: Record<string, unknown>) =>
   apiClient.post(`/rooms/${roomId}/beds`, data).then((r) => r.data.data)
 
 // ─── Booking / Allocation ─────────────────────────────────────────────────────
-export const getPendingAllocations = (hostelId: number) =>
-  apiClient.get(`/booking/pending?hostelId=${hostelId}`).then((r) => r.data.data)
+/** Applicants who requested this hostel; `find` (exact mobile or email) also finds a walk-in applicant. */
+export const getPendingAllocations = (hostelId: number, find?: string) =>
+  apiClient.get('/booking/pending', { params: { hostelId, ...(find ? { find } : {}) } }).then((r) => r.data.data)
 
 export const allocateBed = (data: Record<string, unknown>) =>
   apiClient.post('/booking/allocate', data).then((r) => r.data.data)
@@ -88,6 +89,74 @@ export const getPaymentRecords = (hostelId: number) =>
 
 export const recordCashPayment = (data: Record<string, unknown>) =>
   apiClient.post('/payment/cash', data).then((r) => r.data.data)
+
+// ─── Payment settings, charges, reminders, UPI verification ─────────────────
+export const getPaymentSettings = (hostelId: number) =>
+  apiClient.get(`/payment/settings/hostel/${hostelId}`).then((r) => r.data.data)
+
+export const updatePaymentSettings = (hostelId: number, data: Record<string, unknown>) =>
+  apiClient.put(`/payment/settings/hostel/${hostelId}`, data).then((r) => r.data.data)
+
+export const addCharge = (data: {
+  hostelId: number; hostellerId?: number; applyToAll?: boolean; dueType: string
+  amount: number; description?: string; dueDate?: string
+}) => apiClient.post('/payment/dues/charge', data).then((r) => r.data.data)
+
+export const waiveDue = (dueId: number) =>
+  apiClient.delete(`/payment/dues/${dueId}`).then((r) => r.data.data)
+
+export const sendDueReminder = (dueId: number) =>
+  apiClient.post(`/payment/dues/${dueId}/remind`).then((r) => r.data.data)
+
+// ─── Public listing, photos, enquiries ───────────────────────────────────────
+export const getListing = (hostelId: number) =>
+  apiClient.get(`/listing/hostel/${hostelId}`).then((r) => r.data.data)
+
+export const updateListing = (hostelId: number, data: { listingEnabled?: boolean; slug?: string }) =>
+  apiClient.put(`/listing/hostel/${hostelId}`, data).then((r) => r.data.data)
+
+export const uploadListingPhoto = (hostelId: number, file: File, caption?: string) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (caption) fd.append('caption', caption)
+  return apiClient.post(`/listing/hostel/${hostelId}/photos`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data)
+}
+
+export const reorderListingPhotos = (hostelId: number, ids: number[]) =>
+  apiClient.put(`/listing/hostel/${hostelId}/photos/order`, { ids }).then((r) => r.data.data)
+
+export const setCoverPhoto = (photoId: number) =>
+  apiClient.put(`/listing/photos/${photoId}/cover`).then((r) => r.data.data)
+
+export const updatePhotoCaption = (photoId: number, caption: string) =>
+  apiClient.put(`/listing/photos/${photoId}`, { caption }).then((r) => r.data.data)
+
+export const deleteListingPhoto = (photoId: number) =>
+  apiClient.delete(`/listing/photos/${photoId}`).then((r) => r.data.data)
+
+export const getEnquiries = (hostelId: number, status?: string) =>
+  apiClient.get(`/listing/hostel/${hostelId}/enquiries`, { params: { status } }).then((r) => r.data.data)
+
+export const getEnquiryCounts = (hostelId: number) =>
+  apiClient.get(`/listing/hostel/${hostelId}/enquiries/counts`).then((r) => r.data.data as Record<string, number>)
+
+export const updateEnquiry = (id: number, data: Record<string, unknown>) =>
+  apiClient.patch(`/listing/enquiries/${id}`, data).then((r) => r.data.data)
+
+export const getEmailStatus = () =>
+  apiClient.get('/notifications/email/status').then((r) => r.data.data as { enabled: boolean })
+
+export const sendTestEmail = () =>
+  apiClient.post('/notifications/email/test').then((r) => r.data.data as { to: string; enabled: boolean; sent: boolean; error?: string })
+
+export const getPendingUpiClaims = (hostelId: number) =>
+  apiClient.get(`/payment/upi/pending/hostel/${hostelId}`).then((r) => r.data.data)
+
+export const confirmUpiClaim = (recordId: number) =>
+  apiClient.post(`/payment/upi/${recordId}/confirm`).then((r) => r.data.data)
+
+export const rejectUpiClaim = (recordId: number, reason?: string) =>
+  apiClient.post(`/payment/upi/${recordId}/reject`, { reason }).then((r) => r.data.data)
 
 export const generateDues = (hostelId: number, month: number, year: number) =>
   apiClient.post(`/payment/dues/generate?hostelId=${hostelId}&month=${month}&year=${year}`).then((r) => r.data.data)
@@ -278,3 +347,28 @@ export const changeStaffPassword = (currentPassword: string, newPassword: string
 
 export const deactivateStaffMember = (assignmentId: number) =>
   apiClient.delete(`/staff/${assignmentId}`).then((r) => r.data.data)
+
+// ─── Section 9: policies, safety, housekeeping ────────────────────────────────
+export const getPolicies = (hostelId: number) => apiClient.get(`/hostels/${hostelId}/policies`).then((r) => r.data.data)
+export const savePolicies = (hostelId: number, body: Record<string, unknown>) =>
+  apiClient.put(`/hostels/${hostelId}/policies`, body).then((r) => r.data.data)
+export const getSafetySummary = (hostelId: number) => apiClient.get(`/safety/hostel/${hostelId}/summary`).then((r) => r.data.data)
+export const getSosHistory = (hostelId: number) => apiClient.get(`/safety/hostel/${hostelId}/sos`).then((r) => r.data.data)
+export const ackSos = (id: number) => apiClient.post(`/safety/sos/${id}/acknowledge`).then((r) => r.data.data)
+export const resolveSos = (id: number, note: string) => apiClient.post(`/safety/sos/${id}/resolve`, { note }).then((r) => r.data.data)
+export const getUnwell = (hostelId: number) => apiClient.get(`/safety/hostel/${hostelId}/unwell`).then((r) => r.data.data)
+export const markCheckedOn = (id: number, note?: string) => apiClient.post(`/safety/unwell/${id}/checked`, { note }).then((r) => r.data.data)
+export const getLateEntries = (hostelId: number) => apiClient.get(`/safety/hostel/${hostelId}/late-entry`).then((r) => r.data.data)
+export const reviewLateEntry = (id: number, approve: boolean, note?: string) =>
+  apiClient.post(`/safety/late-entry/${id}/review`, { approve, note }).then((r) => r.data.data)
+export const markLateArrived = (id: number) => apiClient.post(`/safety/late-entry/${id}/arrived`).then((r) => r.data.data)
+export const getHousekeepingBoard = (hostelId: number) => apiClient.get(`/housekeeping/hostel/${hostelId}`).then((r) => r.data.data)
+export const logCleaning = (hostelId: number, data: { roomId?: number; area?: string; note?: string; photo?: File | null }) => {
+  const f = new FormData()
+  if (data.roomId) f.append('roomId', String(data.roomId))
+  if (data.area) f.append('area', data.area)
+  if (data.note) f.append('note', data.note)
+  if (data.photo) f.append('photo', data.photo)
+  return apiClient.post(`/housekeeping/hostel/${hostelId}/log`, f).then((r) => r.data.data)
+}
+export const deleteCleaningLog = (id: number) => apiClient.delete(`/housekeeping/log/${id}`).then((r) => r.data.data)

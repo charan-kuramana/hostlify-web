@@ -7,13 +7,15 @@ import { useAuthStore } from '../../store/authStore'
 import { useToastStore } from '../../store/toastStore'
 import { getMyComplaints, createComplaint } from '../../api/hosteller'
 import NoStay from './NoStay'
+import { SlaTimeline, StarsRow } from '../../components/complaints/Sla'
+import { rateComplaint } from '../../api/ops'
 
 function fmtDate(d: string) {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-const CATEGORIES = ['Maintenance', 'Cleanliness', 'Food', 'Noise', 'Security', 'Other']
+const CATEGORIES = ['Maintenance', 'Cleanliness', 'Food', 'Noise', 'Security', 'Lost & stolen', 'Other']
 
 const CATEGORY_COLORS: Record<string, string> = {
   Maintenance: 'bg-blue-50 text-blue-700',
@@ -21,6 +23,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   Food: 'bg-orange-50 text-orange-700',
   Noise: 'bg-purple-50 text-purple-700',
   Security: 'bg-red-50 text-red-700',
+  'Lost & stolen': 'bg-rose-50 text-rose-700',
   Other: 'bg-gray-100 text-gray-600',
 }
 
@@ -183,7 +186,7 @@ export default function Complaints() {
                 value={form.description}
                 onChange={(e) => { setForm((f) => ({ ...f, description: e.target.value })); setErrors((er) => ({ ...er, description: undefined })) }}
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none bg-gray-50 focus:bg-white transition-colors ${errors.description ? 'border-red-400' : 'border-gray-200'}`}
-                placeholder="Describe the issue in detail…"
+                placeholder={form.category === 'Lost & stolen' ? 'What is missing, roughly what it is worth, where and when you last saw it…' : 'Describe the issue in detail…'}
               />
               {errors.description && <p className="mt-1 text-xs text-red-500">{errors.description}</p>}
             </div>
@@ -228,6 +231,9 @@ export default function Complaints() {
             </div>
             <p className="text-sm text-gray-500 leading-relaxed line-clamp-2">{c.description}</p>
             <p className="text-xs text-gray-400 mt-2.5 font-medium">Submitted {fmtDate(c.createdAt)}</p>
+            <div className="mt-3 pt-3 border-t border-gray-50"><SlaTimeline c={c} /></div>
+            {c.resolutionNotes && (c.status === 'RESOLVED' || c.status === 'CLOSED') && <p className="text-xs text-gray-600 mt-2 bg-emerald-50 rounded-lg px-3 py-2"><b>Fix:</b> {c.resolutionNotes}</p>}
+            {(c.status === 'RESOLVED' || c.status === 'CLOSED') && <RateFix c={c} />}
           </div>
         ))}
         {filtered.length === 0 && (
@@ -240,6 +246,35 @@ export default function Complaints() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/** After a complaint is resolved, the resident rates how it was handled. */
+function RateFix({ c }: { c: any }) {
+  const qc = useQueryClient()
+  const { show } = useToastStore()
+  const [feedback, setFeedback] = useState('')
+  const [rating, setRating] = useState<number>(c.residentRating ?? 0)
+  const mut = useMutation({
+    mutationFn: (r: number) => rateComplaint(c.id, r, feedback || undefined),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['my-complaints'] }); show('success', 'Thanks for your feedback') },
+    onError: (e: any) => show('error', 'Not saved', e?.response?.data?.message ?? 'Please try again.'),
+  })
+  if (c.residentRating) {
+    return <p className="text-xs text-gray-500 mt-2 flex items-center gap-2">You rated <StarsRow value={c.residentRating} size={13} /></p>
+  }
+  return (
+    <div className="mt-3 bg-gray-50 rounded-xl p-3">
+      <p className="text-xs font-semibold text-gray-600 mb-1">How well was this handled?</p>
+      <StarsRow value={rating} onChange={setRating} size={22} />
+      {rating > 0 && (
+        <div className="flex gap-2 mt-2">
+          <input value={feedback} onChange={(e) => setFeedback(e.target.value)} maxLength={500} placeholder="Anything to add? (optional)"
+            className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 text-sm bg-white" />
+          <button onClick={() => mut.mutate(rating)} disabled={mut.isPending} className="px-3 rounded-lg text-xs font-semibold text-white bg-brand-600 disabled:opacity-60">Send</button>
+        </div>
+      )}
     </div>
   )
 }
